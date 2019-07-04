@@ -109,7 +109,7 @@ def plot_episode_stats(stats, smoothing_window=10, noshow=False):
     return fig1, fig2, fig3
 
 
-def plot_stats(df, env, name, show_u=False):
+def plot_stats(df, show_u=False):
 
     sns.set()
     ax = plt.figure(figsize=(10, 6))
@@ -118,11 +118,8 @@ def plot_stats(df, env, name, show_u=False):
 
     plt.plot(df['t'], df['q_ref'] * 180 / np.pi, 'r', label='q_ref')
     plt.plot(df['t'], df['q'] * 180 / np.pi, 'y', label='q')
-    plt.plot(df['t'], df['a1'] * 180 / np.pi,'g',  label='a_1')
+    # plt.plot(df['t'], df['a1'] * 180 / np.pi,'g',  label='a_1')
     plt.xlabel('Time [s]')
     plt.ylabel('q [deg/s]  |  u [deg]')
-    plt.title('SARSA episode #' + name + ' | size(q): ' + str(len(env.q_space)) +
-              ' | size(a1): ' + str(len(env.a1_space)) +
-              ' | size(u): ' + str(len(env.action_space)))
     plt.legend()
     plt.show()

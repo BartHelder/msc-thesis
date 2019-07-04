@@ -8,11 +8,18 @@ import pandas as pd
 import sys
 import plotting
 from gym.envs.classic_control import cartpole
+from gym import spaces
+from gym.utils import seeding
 
-class SimpleHelicopter():
 
-    def __init__(self, tau, k_beta, name):
-        self.dt = 0.01
+
+class SimpleHelicopter:
+
+    def __init__(self, tau, k_beta, name='heli'):
+        self.dt = 0.02
+        self.max_episode_length = 120
+        self.episode_ticks = self.max_episode_length / self.dt
+
         self.mass = 2200
         self.h = 1
         self.tau = tau
@@ -23,16 +30,18 @@ class SimpleHelicopter():
         self.r_blade = 7.32
         self.omega = (self.v_tip / self.r_blade)
         self.th_iy = (self.mass * 9.81 * self.h + 3 / 2 * self.k_beta) / self.iy
+
         self.name = name
         self.state = None
-        self.theta = 0
-        self.theta_threshold = 30 * np.pi / 180
-        self.q_space = (np.arange(-5, 5.025, 0.025)) * np.pi / 180
-        self.qe_space = (np.arange(-2, 2.01, 0.01)) * np.pi / 180
-        self.a1_space = (np.arange(-1, 1.05, 0.05)) * np.pi / 180
-        self.action_space = np.arange(-5, 5.01, 0.5) * np.pi / 180
+        self.q_threshold = np.deg2rad(5)
+        self.qe_threshold = np.deg2rad(3)
 
-    def step(self, action, q_ref):
+        high = np.array([
+            self.q_threshold * 2,
+            self.qe_threshold * 2])
+        self.observation_space = spaces.Box(-high, high, dtype=np.float32)
+
+    def step(self, u_cyclic, q_ref, virtual=False):
         """Run one timestep of the environment's dynamics. When end of
         episode is reached, you are responsible for calling `reset()`
         to reset this environment's state.
@@ -49,44 +58,44 @@ class SimpleHelicopter():
             info (dict): contains auxiliary diagnostic information (helpful for debugging, and sometimes learning)
         """
 
-        u_cyclic = self.action_space[action]
         q, a1 = self.state
-        a1_dot = (-1 / self.tau) * (a1 + 16 * q / (self.gamma * self.omega))
+
+        # Get state derivatives
         q_dot = -self.th_iy * (u_cyclic - a1)
+        a1_dot = (-1 / self.tau) * (a1 + 16 * q / (self.gamma * self.omega))
 
-        a1 = a1 + self.dt * a1_dot
+        # Integration
         q = q + self.dt * q_dot
+        a1 = a1 + self.dt * a1_dot
 
-        qd = min(np.searchsorted(self.q_space, q), 400)
-        qed = min(np.searchsorted(self.qe_space, q-q_ref), 400)
-        a1d = np.searchsorted(self.a1_space, a1)
+        if not virtual:
+            self.state = [q, a1]
 
-        q_discretized = self.q_space[qd]
-        qe_discretized = self.qe_space[qed]
-        a1_discretized = self.a1_space[a1d]
-
-        self.theta += self.dt * q_discretized
-        self.state = np.array([q_discretized, a1_discretized])
-
+        qe = (q - q_ref)
         done = False
-        if self.theta < -self.theta_threshold or self.theta > self.theta_threshold \
-               or qe_discretized < min(self.qe_space) or qe_discretized > max(self.qe_space):
-            reward = -10
-            done = True
-        else:
-            reward = -qe_discretized**2 / 2
+        reward = -1 / 2 * qe ** 2
+        if qe > self.qe_threshold:
+            reward -= 10
 
-        return (qd, qed, a1d), reward, done, {}
+        return np.array([q, a1, qe]), reward, done
+
+    def seed(self, seed=None):
+        self.np_random, seed = seeding.np_random(seed)
+        return [seed]
 
     def reset(self):
         """"
-        State variabloes: q, al
+        State variabloes: q, al, theta
         """
-        self.state = np.array([0, 0])
-        self.theta = 0
 
-        return 0, 0, 0
+        q_0 = np.random.uniform(low=-1, high=1) * np.deg2rad(1)
+        a1 = 0
+        self.t = 0
+        self.state = [q_0, a1]
 
+        return np.array([q_0, a1, 0])
 
-
-
+    def render(self, t):
+        plt.scatter(t, self.state[0])
+        plt.pause(0.04)
+        plt.show()
