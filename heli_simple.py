@@ -15,7 +15,7 @@ from gym.utils import seeding
 
 class SimpleHelicopter:
 
-    def __init__(self, tau, k_beta, name='heli'):
+    def __init__(self, tau, k_beta, task, name='heli'):
         self.dt = 0.02
         self.max_episode_length = 120
         self.episode_ticks = self.max_episode_length / self.dt
@@ -33,15 +33,19 @@ class SimpleHelicopter:
 
         self.name = name
         self.state = None
-        self.q_threshold = np.deg2rad(5)
-        self.qe_threshold = np.deg2rad(3)
+        self.q_threshold = np.deg2rad(15)
+        self.qe_threshold = np.deg2rad(10)
+
+        self.task = task
 
         high = np.array([
             self.q_threshold * 2,
+            np.deg2rad(1),
             self.qe_threshold * 2])
         self.observation_space = spaces.Box(-high, high, dtype=np.float32)
 
-    def step(self, u_cyclic, q_ref, virtual=False):
+
+    def step(self, u_cyclic, virtual=False):
         """Run one timestep of the environment's dynamics. When end of
         episode is reached, you are responsible for calling `reset()`
         to reset this environment's state.
@@ -59,6 +63,7 @@ class SimpleHelicopter:
         """
 
         q, a1 = self.state
+        q_ref = self.task.step()
 
         # Get state derivatives
         q_dot = -self.th_iy * (u_cyclic - a1)
@@ -72,10 +77,9 @@ class SimpleHelicopter:
             self.state = [q, a1]
 
         qe = (q - q_ref)
-        done = False
-        reward = -1 / 2 * qe ** 2
-        if qe > self.qe_threshold:
-            reward -= 10
+        reward = (-1/2 * (qe / self.q_threshold)**2)
+
+        done = True if self.task.t >= self.max_episode_length else False
 
         return np.array([q, a1, qe]), reward, done
 
@@ -88,14 +92,10 @@ class SimpleHelicopter:
         State variabloes: q, al, theta
         """
 
-        q_0 = np.random.uniform(low=-1, high=1) * np.deg2rad(1)
-        a1 = 0
-        self.t = 0
+        self.task.reset()
+
+        q_0 = np.random.uniform(low=-1, high=1) * np.deg2rad(0.1)
+        a1 = np.random.uniform(low=-1, high=1) * np.deg2rad(0.01)
         self.state = [q_0, a1]
 
-        return np.array([q_0, a1, 0])
-
-    def render(self, t):
-        plt.scatter(t, self.state[0])
-        plt.pause(0.04)
-        plt.show()
+        return np.array([q_0, a1, q_0])

@@ -109,10 +109,11 @@ def plot_episode_stats(stats, smoothing_window=10, noshow=False):
     return fig1, fig2, fig3
 
 
-def plot_stats(df, show_u=False):
+def plot_stats(df, title, show_u=False):
 
+    #  Tracking performance plot
     sns.set()
-    ax = plt.figure(figsize=(10, 6))
+    fig1 = plt.figure(figsize=(10, 6))
     if show_u:
         plt.plot(df['t'], df['u'] * 180 / np.pi, 'b--', label='u')
 
@@ -121,5 +122,15 @@ def plot_stats(df, show_u=False):
     # plt.plot(df['t'], df['a1'] * 180 / np.pi,'g',  label='a_1')
     plt.xlabel('Time [s]')
     plt.ylabel('q [deg/s]  |  u [deg]')
+    plt.title(title)
+    plt.legend()
+    plt.show()
+
+    #  Reward over time plot
+    fig2 = plt.figure(figsize=(10,6))
+    plt.plot(df['t'], df['r'])
+    plt.xlabel('Time [s]')
+    plt.ylabel('Reward [-]')
+    plt.title(title)
     plt.legend()
     plt.show()
