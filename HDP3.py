@@ -40,7 +40,7 @@ class HDPAgent:
         wco = self.w_critic_hidden_to_output
         wai = self.w_actor_input_to_hidden
         wao = self.w_actor_hidden_to_output
-        learning_rate = 0.2
+        learning_rate = 0.3
 
         # This is a property of the environment
         # dS_t/da =
