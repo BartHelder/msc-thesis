@@ -83,6 +83,11 @@ class SimpleHelicopter:
 
         return np.array([q, a1, qe]), reward, done
 
+    def get_environment_transition_function(self):
+        return np.array([-self.th_iy * self.dt,
+                         0,
+                         -self.th_iy * self.dt])
+
     def seed(self, seed=None):
         self.np_random, seed = seeding.np_random(seed)
         return [seed]

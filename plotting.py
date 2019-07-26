@@ -134,3 +134,7 @@ def plot_stats(df, title, show_u=False):
     plt.title(title)
     plt.legend()
     plt.show()
+
+def plot_neural_network_weights():
+    sns.set()
+

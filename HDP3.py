@@ -9,17 +9,15 @@ from collections import deque
 from heli_simple import SimpleHelicopter
 
 
+class HDPAgentNumpy:
 
-class HDPAgent:
-
-    def __init__(self, run_number):
+    def __init__(self, run_number=0):
         self.gamma = 0.95
         self.w_critic_input_to_hidden = np.random.rand(3, 6) * 1 / np.sqrt(6)
         self.w_critic_hidden_to_output = np.random.rand(6, 1) * 1 / np.sqrt(2)
         self.w_actor_input_to_hidden = np.random.rand(3, 6) * 1 / np.sqrt(6)
         self.w_actor_hidden_to_output = np.random.rand(6, 1)
         self.run_number = run_number
-
 
     def action(self, obs):
 
@@ -40,11 +38,10 @@ class HDPAgent:
         wco = self.w_critic_hidden_to_output
         wai = self.w_actor_input_to_hidden
         wao = self.w_actor_hidden_to_output
-        learning_rate = 0.3
+
 
         # This is a property of the environment
-        # dS_t/da =
-        dst_da = np.array([-env.th_iy * env.dt, 0, -env.th_iy * env.dt])
+        dst_da = env.get_environment_transition_function()
 
         def _critic(observation):
             c_hidden_in = np.matmul(observation[None, :], wci)
@@ -68,7 +65,9 @@ class HDPAgent:
             # Initialize environment and tracking task
             observation = env.reset()
             stats = []
+            learning_rate = 0.1
             weight_stats = []
+
             # Repeat (for each step t of an episode)
             for step in range(int(env.episode_ticks)):
 
@@ -110,7 +109,7 @@ class HDPAgent:
                     #    get new action estimate with current actor weights
                     a, ha = _actor(observation)
                     #    backprop action through actor network
-                    da_dwa_ho = np.deg2rad(10) * 1/2 * (1-a**2) * ha
+                    da_dwa_ho = np.deg2rad(10) * 1/2 * (1-a **2) * ha
                     da_dwa_ih = np.deg2rad(10) * 1/2 * (1-a**2) * wao * 1/2 * (1-ha**2).T * observation[None, :]
 
                     #    chain rule to get grad of actor error to actor weights
@@ -123,13 +122,28 @@ class HDPAgent:
                     wao += -learning_rate * dEa_dwa_ho
 
                 # 6. Save previous values
-                stats.append({'t': env.task.t, 'r': reward, 'q': observation[0], 'q_ref': env.task.get_q_ref(), 'a1': observation[1], 'u': action})
+                stats.append({'t': env.task.t,
+                              'r': reward,
+                              'q': observation[0],
+                              'q_ref': env.task.get_ref(),
+                              'a1': observation[1],
+                              'u': action})
                 observation = next_observation
+                weight_stats.append(np.concatenate([i.ravel() for i in [wci, wco, wai, wao]]))
 
-            df = pd.DataFrame(stats)
-            episode_reward = df.r.sum()
-            print("Cumlative reward episode:#" + str(self.run_number), episode_reward)
-            plot_stats(df, 'Episode # ' + str(self.run_number) + ' | k_beta='+str(env.k_beta)+' | tau='+str(env.tau), True)
+                # Anneal learning rate (optional)
+                learning_rate *= 0.9996
+
+            #  Performance statistics
+            episode_stats = pd.DataFrame(stats)
+            episode_reward = episode_stats.r.sum()
+            print("Cumulative reward episode:#" + str(self.run_number), episode_reward)
+            plot_stats(episode_stats, 'Episode # ' + str(self.run_number) + ' | k_beta='+str(env.k_beta)+' | tau='+str(env.tau), True)
+
+            #  Neural network weights over time:
+            weights_history = pd.DataFrame(data=weight_stats,
+                                           index=np.arange(0, env.max_episode_length, env.dt))
+
 
         return episode_reward
 
@@ -139,7 +153,7 @@ class HDPAgent:
         stats = []
 
         while not done:
-            stats.append({'t': task.t, 'q': obs[0], 'q_ref': env.task.get_q_ref(), 'a1': obs[1], 'u': action})
+            stats.append({'t': env.task.t, 'q': obs[0], 'q_ref': env.task.get_q_ref(), 'a1': obs[1], 'u': action})
             action = self.action(obs)
             obs, reward, done = env.step(action)
             ep_reward += reward
@@ -151,48 +165,5 @@ class HDPAgent:
 
         return ep_reward
 
-
-class TrackingTask:
-
-    def __init__(self,
-                 amplitude=np.deg2rad(10),
-                 period=20,
-                 dt=0.02):
-
-        self.amplitude = amplitude
-        self.period = period   # seconds
-        self.dt = dt
-        self.t = 0
-        self.q_ref = 0
-
-    def get_q_ref(self):
-        return self.amplitude * np.sin(2 * np.pi * self.t / self.period)
-
-    def step(self):
-        self.t += self.dt
-        return self.get_q_ref()
-
-    def reset(self):
-        self.t = 0
-        return self.get_q_ref()
-
-
 if __name__ == '__main__':
-
-    task = TrackingTask(period=40)
-    env = SimpleHelicopter(tau=0.25, k_beta=0, task=task, name='poep')
-    np.random.seed()
-
-    ep_rewards = []
-    for j in range(1, 101):
-        agent = HDPAgent(run_number=j)
-        r = agent.train(env, n_episodes=1, n_updates=10)
-        ep_rewards.append(r)
-    # print("Before training: %f out of 200" % agent.test(env, render=True))
-    # print("Starting training phase...")
-    # rewards_history = agent.train(env)
-    # print("Finished training, testing...")
-    # print("After training: %f out of 200" % agent.test(env, max_steps=80, render=True))
-    #
-    # env2 = SimpleHelicopter(tau=0.25, k_beta=1000)
-    # agent.test(env2, max_steps=80, render=True)
+    agent = HDPAgentNumpy()
