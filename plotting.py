@@ -109,7 +109,9 @@ def plot_episode_stats(stats, smoothing_window=10, noshow=False):
     return fig1, fig2, fig3
 
 
-def plot_stats(df, title, show_u=False):
+def plot_stats(df, info, show_u=False):
+
+    title = 'Episode # ' + str(info['run_number']) + ' | k_beta=' + str(info['k_beta']) + ' | tau=' + str(info['tau'])
 
     #  Tracking performance plot
     sns.set()
@@ -135,6 +137,15 @@ def plot_stats(df, title, show_u=False):
     plt.legend()
     plt.show()
 
-def plot_neural_network_weights():
+def plot_neural_network_weights(data, info):
+
     sns.set()
+    sns.set_context('paper')
+    title = 'Episode # ' + str(info['run_number']) + ' | k_beta=' + str(info['k_beta']) + ' | tau=' + str(info['tau'])
+    fig3 = plt.figure(figsize=(10, 6))
+    sns.lineplot(data=data, dashes=False, legend=False)
+    plt.xlabel('Time [s]')
+    plt.ylabel('Neuron weight [-]')
+    plt.title(title)
+    plt.show()
 
