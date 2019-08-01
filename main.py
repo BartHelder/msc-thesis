@@ -15,7 +15,6 @@ argslist = list(itertools.product(learning_rates, sigmas))
 paths = [str(x) + '-' + str(y) for x, y in (argslist)]
 num_sets = len(argslist)//4
 
-
 def do_one_trial(env, learning_rate, sigma, path, n_episodes):
     ep_rewards = []
     for j in range(1, n_episodes+1):
@@ -23,7 +22,7 @@ def do_one_trial(env, learning_rate, sigma, path, n_episodes):
         rewards, _, info = agent.train(env, plotstats=False, n_updates=5)
         ep_rewards.append(rewards)
 
-    results = {'lr': learning_rate, '\sigma^2': sigma, 'er': ep_rewards}
+    results = {'lr': learning_rate, 'sigma': sigma, 'er': ep_rewards}
     with open('jsons/'+path+'.json', 'w') as fp:
         json.dump(results, fp)
 

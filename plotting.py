@@ -175,11 +175,3 @@ def plot_sensitivity_analysis(confidence_interval=95):
 
     plt.show()
 
-all = []
-filelist = os.listdir('jsons/')
-for i in filelist:
-    with open("jsons/"+i, 'r') as f:
-        all.append(pd.DataFrame(json.load(f)))
-a = pd.concat(all)
-
-

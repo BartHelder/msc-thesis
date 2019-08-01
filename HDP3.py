@@ -142,7 +142,7 @@ class HDPAgentNumpy:
         #  Performance statistics
         episode_stats = pd.DataFrame(stats)
         episode_reward = episode_stats.r.sum()
-        print("Cumulative reward episode:#" + str(self.run_number), episode_reward)
+        #print("Cumulative reward episode:#" + str(self.run_number), episode_reward)
         if plotstats:
             plot_stats(episode_stats, info=info, show_u=True)
 
