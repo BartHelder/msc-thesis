@@ -4,6 +4,8 @@ import pandas as pd
 from collections import namedtuple
 from matplotlib import pyplot as plt
 import seaborn as sns
+import os
+import json
 
 EpisodeStats = namedtuple("Stats",["episode_lengths", "episode_rewards"])
 
@@ -154,11 +156,30 @@ def plot_neural_network_weights(data, info):
     plt.show()
 
 
-def plot_sensitivity_analysis(data: pd.DataFrame):
+def plot_sensitivity_analysis(confidence_interval=95):
 
     sns.set()
     sns.set_context('paper')
+    fig, ax = plt.subplots()
+    ax.set(yscale='symlog', yticks=[-500, -400, -300, -200, -100, -50])
 
-    fig3 = plt.figure(figsize=(10, 6))
-    f = sns.lineplot(data=data, x='lr', y='mean', hue='sigma', err_style='band', err_kws={'yerr': data['std']},
-                     dashes=False)
+    all = []
+    filelist = os.listdir('jsons/')
+    for i in filelist:
+        with open("jsons/" + i, 'r') as f:
+            all.append(pd.DataFrame(json.load(f)))
+    data = pd.concat(all)
+    palette = sns.color_palette("mako_r", data['sigma'].nunique())
+    f = sns.lineplot(data=data, ax=ax, x='lr', y='er', hue='sigma', legend='full',
+                     ci=confidence_interval, dashes=False, palette=palette)
+
+    plt.show()
+
+all = []
+filelist = os.listdir('jsons/')
+for i in filelist:
+    with open("jsons/"+i, 'r') as f:
+        all.append(pd.DataFrame(json.load(f)))
+a = pd.concat(all)
+
+
