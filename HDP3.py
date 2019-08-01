@@ -32,7 +32,7 @@ class HDPAgentNumpy:
         a2 = np.matmul(h, self.w_actor_hidden_to_output)
         return (np.deg2rad(10) * np.tanh(a2))[0][0]
 
-    def train(self, env, n_updates=5, anneal_learning_rate=False, annealing_rate=0.9994):
+    def train(self, env, plotstats=True, n_updates=5, anneal_learning_rate=False, annealing_rate=0.9994):
 
         # training loop: collect samples, send to optimizer, repeat updates times
         episode_rewards = [0.0]
@@ -143,14 +143,15 @@ class HDPAgentNumpy:
         episode_stats = pd.DataFrame(stats)
         episode_reward = episode_stats.r.sum()
         print("Cumulative reward episode:#" + str(self.run_number), episode_reward)
-        plot_stats(episode_stats, info=info, show_u=True)
+        if plotstats:
+            plot_stats(episode_stats, info=info, show_u=True)
 
-        #  Neural network weights over time:
+        #  Neural network weights over time, saving only every 10th timestep because the system only evolves slowly
         weights_history = pd.DataFrame(data=weight_stats,
                                        index=np.arange(0, env.max_episode_length, env.dt*10))
-        plot_neural_network_weights(data=weights_history, info=info)
+        #plot_neural_network_weights(data=weights_history, info=info)
 
-        return episode_reward
+        return episode_reward, weights_history, info
 
     def test(self, env, max_steps=None, render=True):
         obs, done, ep_reward = env.reset(), False, 0

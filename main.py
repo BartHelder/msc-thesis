@@ -3,26 +3,29 @@ from controllers import sarsa
 from HDP3 import HDPAgentNumpy
 from tasks import SimpleTrackingTask
 import numpy as np
+import itertools
+import pandas as pd
 
+learning_rates = [0.1, 0.2, 0.3, 0.4, 0.5, 0.7]
+stdevs = [0.05, 0.075, 0.1, 0.2, 0.3, 0.5]
 
 if __name__ == "__main__":
     task = SimpleTrackingTask(period=40)
     env = SimpleHelicopter(tau=0.25, k_beta=0, task=task, name='poep')
     np.random.seed()
-    ep_rewards = []
+    trial_rewards = []
+    trial_weights = []
+    n_episodes = 100
 
-    agent = HDPAgentNumpy(learning_rate=0.2, run_number=0, weights_std=0.2)
-    agent.train(env, n_updates=5)
+    for learning_rate, stdev in itertools.product(learning_rates, stdevs):
+        ep_rewards = []
+        ep_weights = []
+        for j in range(1, n_episodes+1):
+            agent = HDPAgentNumpy(learning_rate=learning_rate, run_number=j, weights_std=stdev)
+            rewards, weights, info = agent.train(env, plotstats=False, n_updates=5)
+            ep_rewards.append(rewards)
+            ep_weights.append(weights)
+        trial_rewards.append((np.mean(ep_rewards), np.std(ep_rewards), np.min(ep_rewards), np.max(ep_rewards)))
+        trial_weights.append(ep_weights)
 
-
-    # print("Before training: %f" % agent.test(env, render=True))
-    # print("Starting training phase...")
-    #
-    # for j in range(1, 101):
-    #     agent = HDPAgentNumpy(run_number=j)
-    #     r = agent.train(env, n_episodes=1, n_updates=5)
-    #     ep_rewards.append(r)
-    # print("Finished training, testing...")
-    #
-    # env2 = SimpleHelicopter(tau=0.25, k_beta=0, task=task)
-    # agent.test(env2, max_steps=80, render=True)
+    print("Finished training")

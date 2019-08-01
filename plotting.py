@@ -109,9 +109,13 @@ def plot_episode_stats(stats, smoothing_window=10, noshow=False):
     return fig1, fig2, fig3
 
 
-def plot_stats(df, info, show_u=False):
+def get_title(info: dict) -> str:
+    return 'Episode # ' + str(info['run_number']) + ' | k_beta=' + str(info['k_beta']) + ' | tau=' + str(info['tau'])
 
-    title = 'Episode # ' + str(info['run_number']) + ' | k_beta=' + str(info['k_beta']) + ' | tau=' + str(info['tau'])
+
+def plot_stats(df: pd.DataFrame, info, show_u=False):
+
+    title = get_title(info)
 
     #  Tracking performance plot
     sns.set()
@@ -141,7 +145,7 @@ def plot_neural_network_weights(data, info):
 
     sns.set()
     sns.set_context('paper')
-    title = 'Episode # ' + str(info['run_number']) + ' | k_beta=' + str(info['k_beta']) + ' | tau=' + str(info['tau'])
+    title = get_title(info)
     fig3 = plt.figure(figsize=(10, 6))
     sns.lineplot(data=data, dashes=False, legend=False)
     plt.xlabel('Time [s]')
@@ -149,3 +153,12 @@ def plot_neural_network_weights(data, info):
     plt.title(title)
     plt.show()
 
+
+def plot_sensitivity_analysis(data: pd.DataFrame):
+
+    sns.set()
+    sns.set_context('paper')
+
+    fig3 = plt.figure(figsize=(10, 6))
+    f = sns.lineplot(data=data, x='lr', y='mean', hue='sigma', err_style='band', err_kws={'yerr': data['std']},
+                     dashes=False)
