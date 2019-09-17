@@ -64,13 +64,13 @@ def sarsa(env, num_episodes, discount_factor=1.0, alpha=0.5, epsilon=0.1, max_ep
         action_probs = policy(state)
         action = np.random.choice(np.arange(len(action_probs)), p=action_probs)
         intermediate_stats = []
-        for t in itertools.count():
+        for step in itertools.count():
 
-            time = t * env.dt
-            q_ref = 3 * np.pi / 180 * np.sin(time * 2 * np.pi / 5)
+            t = step * env.dt
+            q_ref = 10 * np.pi / 180 * np.sin(t * 2 * np.pi / 5)
 
             # Perform action:
-            next_state, reward, done, _ = env.step(action, q_ref)
+            next_state, reward, done, _ = env.step(action)
 
             # Based on results, pick the next action:
             next_action_probs = policy(next_state)
@@ -100,4 +100,5 @@ def sarsa(env, num_episodes, discount_factor=1.0, alpha=0.5, epsilon=0.1, max_ep
             plotting.plot_stats(df, env, str(i_episode+1))
 
     return Q, stats, intermediate_stats
+
 

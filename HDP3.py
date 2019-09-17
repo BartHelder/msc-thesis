@@ -7,21 +7,21 @@ from heli_simple import SimpleHelicopter
 
 class HDPAgentNumpy:
 
-    def __init__(self, discount_factor=0.95, learning_rate=0.1, run_number=0, scaling='std', weights_std=0.1):
+    def __init__(self, discount_factor=0.95, learning_rate=0.1, run_number=0, scaling='std', weights_std=0.1, n_hidden=6):
         self.gamma = discount_factor
         self.learning_rate = learning_rate
 
         if scaling == 'std':
-            self.w_critic_input_to_hidden = np.random.randn(3, 6) * weights_std
-            self.w_critic_hidden_to_output = np.random.randn(6, 1) * weights_std
-            self.w_actor_input_to_hidden = np.random.randn(3, 6) * weights_std
-            self.w_actor_hidden_to_output = np.random.randn(6, 1) * weights_std
+            self.w_critic_input_to_hidden = np.random.randn(3, n_hidden) * weights_std
+            self.w_critic_hidden_to_output = np.random.randn(n_hidden, 1) * weights_std
+            self.w_actor_input_to_hidden = np.random.randn(3, n_hidden) * weights_std
+            self.w_actor_hidden_to_output = np.random.randn(n_hidden, 1) * weights_std
 
         elif scaling == 'xavier':
-            self.w_critic_input_to_hidden = np.random.randn(3, 6) * np.sqrt(2 / (3+6))
-            self.w_critic_hidden_to_output = np.random.randn(6, 1) * np.sqrt(2 / (6+1))
-            self.w_actor_input_to_hidden = np.random.randn(3, 6) * np.sqrt(2 / (3+6))
-            self.w_actor_hidden_to_output = np.random.randn(6, 1) * np.sqrt(2 / (6+1))
+            self.w_critic_input_to_hidden = np.random.randn(3, n_hidden) * np.sqrt(2 / (3+n_hidden))
+            self.w_critic_hidden_to_output = np.random.randn(n_hidden, 1) * np.sqrt(2 / (n_hidden+1))
+            self.w_actor_input_to_hidden = np.random.randn(3, n_hidden) * np.sqrt(2 / (3+n_hidden))
+            self.w_actor_hidden_to_output = np.random.randn(n_hidden, 1) * np.sqrt(2 / (n_hidden+1))
 
         self.run_number = run_number
 
@@ -136,20 +136,18 @@ class HDPAgentNumpy:
                 weight_stats.append(np.concatenate([i.ravel() for i in [wci, wco, wai, wao]]))
 
             # Anneal learning rate (optional)
-            if anneal_learning_rate:
+            if anneal_learning_rate and self.learning_rate > 0.01:
                 self.learning_rate *= annealing_rate
 
         #  Performance statistics
         episode_stats = pd.DataFrame(stats)
         episode_reward = episode_stats.r.sum()
         #print("Cumulative reward episode:#" + str(self.run_number), episode_reward)
-        if plotstats:
-            plot_stats(episode_stats, info=info, show_u=True)
-
         #  Neural network weights over time, saving only every 10th timestep because the system only evolves slowly
         weights_history = pd.DataFrame(data=weight_stats,
                                        index=np.arange(0, env.max_episode_length, env.dt*10))
-        #plot_neural_network_weights(data=weights_history, info=info)
+        if plotstats:
+            plot_stats(episode_stats, info=info, show_u=True)
 
         return episode_reward, weights_history, info
 

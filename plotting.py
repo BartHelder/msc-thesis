@@ -3,11 +3,14 @@ import numpy as np
 import pandas as pd
 from collections import namedtuple
 from matplotlib import pyplot as plt
+import matplotlib.ticker
 import seaborn as sns
 import os
 import json
 
 EpisodeStats = namedtuple("Stats",["episode_lengths", "episode_rewards"])
+FIGSIZE = (8, 6)
+
 
 def plot_cost_to_go_mountain_car(env, estimator, num_tiles=20):
     x = np.linspace(env.observation_space.low[0], env.observation_space.high[0], num=num_tiles)
@@ -121,7 +124,7 @@ def plot_stats(df: pd.DataFrame, info, show_u=False):
 
     #  Tracking performance plot
     sns.set()
-    fig1 = plt.figure(figsize=(10, 6))
+    fig1 = plt.figure(figsize=FIGSIZE)
     if show_u:
         plt.plot(df['t'], df['u'] * 180 / np.pi, 'b--', label='u')
 
@@ -135,7 +138,7 @@ def plot_stats(df: pd.DataFrame, info, show_u=False):
     plt.show()
 
     #  Reward over time plot
-    fig2 = plt.figure(figsize=(10,6))
+    fig2 = plt.figure(figsize=FIGSIZE)
     plt.plot(df['t'], df['r'])
     plt.xlabel('Time [s]')
     plt.ylabel('Reward [-]')
@@ -148,30 +151,65 @@ def plot_neural_network_weights(data, info):
     sns.set()
     sns.set_context('paper')
     title = get_title(info)
-    fig3 = plt.figure(figsize=(10, 6))
-    sns.lineplot(data=data, dashes=False, legend=False)
+
+    w_critic = data.iloc[:, :24]
+    w_actor = data.iloc[:, 24:]
+    fig3 = plt.figure(figsize=FIGSIZE)
+    sns.lineplot(data=w_critic, dashes=False, legend=False, palette=sns.color_palette("hls", len(w_critic.columns)))
     plt.xlabel('Time [s]')
     plt.ylabel('Neuron weight [-]')
-    plt.title(title)
+    plt.title('Critic weights - ' + title)
+    plt.show()
+
+    fig4 = plt.figure(figsize=FIGSIZE)
+    sns.lineplot(data=w_actor, dashes=False, legend=False, palette=sns.color_palette("hls", len(w_actor.columns)))
+    plt.xlabel('Time [s]')
+    plt.ylabel('Neuron weight [-]')
+    plt.title('Actor weights - ' + title)
     plt.show()
 
 
-def plot_sensitivity_analysis(confidence_interval=95):
+def plot_sensitivity_analysis(confidence_interval=99):
 
     sns.set()
-    sns.set_context('paper')
-    fig, ax = plt.subplots()
-    ax.set(yscale='symlog', yticks=[-500, -400, -300, -200, -100, -50])
-
+    fig, ax = plt.subplots(figsize=FIGSIZE)
     all = []
     filelist = os.listdir('jsons/')
     for i in filelist:
         with open("jsons/" + i, 'r') as f:
             all.append(pd.DataFrame(json.load(f)))
     data = pd.concat(all)
-    palette = sns.color_palette("mako_r", data['sigma'].nunique())
-    f = sns.lineplot(data=data, ax=ax, x='lr', y='er', hue='sigma', legend='full',
+    data.rename(columns={'sigma': 'stdev'}, inplace=True)
+    palette = sns.color_palette('mako_r', data['stdev'].nunique())
+    f = sns.lineplot(data=data, ax=ax, x='lr', y='er', hue='stdev', legend='full',
                      ci=confidence_interval, dashes=False, palette=palette)
+    ax.set_yscale('symlog', subsy=[2, 3, 4, 5, 6, 7, 8, 9])
+    ax.set_yticks([-800, -700, -600, -500, -400, -300, -200, -100, -50])
+    ax.set_yticklabels([-800, -700, -600, -500, -400, -300, -200, -100, -50])
+    ax.get_xaxis().set_major_formatter(matplotlib.ticker.ScalarFormatter())
+    plt.xlabel('Learning rate [-]')
+    plt.ylabel('Mean reward (log scale) [-]')
+    plt.show()
+
+
+def compare_runs(runs_dict):
+    sns.set()
+    fig, ax = plt.subplots(figsize=FIGSIZE)
+
+    df = pd.DataFrame(runs_dict)
+    df = df[['1', '3', '2']]
+    df.columns = ['a', 'b', '46000 (corr)']
+    f = sns.violinplot(data=df)
+
+    plt.xlabel('k_beta [-]')
+    plt.ylabel('Episode rewards [-]')
 
     plt.show()
 
+
+if __name__ == "__main__":
+
+    with open('rewards.json', 'r') as f:
+        rewards = json.load(f)
+
+    compare_runs(rewards)
