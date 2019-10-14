@@ -25,12 +25,22 @@ class Task:
 
 class SimpleTrackingTask(Task):
 
-    def __init__(self, amplitude=np.deg2rad(10), period=20, dt=0.02):
+    def __init__(self, amplitude=np.deg2rad(10), period=20):
         super().__init__()
         self.amplitude = amplitude
         self.period = period   # seconds
-        self.dt = dt
         self.q_ref = 0
 
     def get_ref(self):
         return self.amplitude * np.sin(2 * np.pi * self.t / self.period)
+
+class HoverTask(Task):
+
+    def __init__(self, ):
+        super().__init__()
+        self.selected_states = np.array([1, 1, 0, 0, 1, 0, 0])
+        self.state_weights = np.array([1, 1, 100])
+
+    def get_ref(self):
+        return np.array([0, 0, 0])
+

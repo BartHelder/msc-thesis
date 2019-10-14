@@ -1,4 +1,4 @@
-from heli_simple import SimpleHelicopter
+from heli_models import Helicopter1DOF, Helicopter3DOF
 from HDP3 import HDPAgentNumpy
 from tasks import SimpleTrackingTask
 import numpy as np
@@ -9,7 +9,14 @@ from plotting import plot_neural_network_weights
 from controllers import sarsa
 
 
-def do_one_trial(env, learning_rate, weights_std, path="tmp.json", n_episodes=100, save_weights=False, results_to_json=True, plot_stats=False):
+def do_one_trial(env,
+                 learning_rate,
+                 weights_std,
+                 path="tmp.json",
+                 n_episodes=100,
+                 save_weights=False,
+                 results_to_json=True,
+                 plot_stats=False):
 
     ep_rewards = []
     ep_weights = []
@@ -28,8 +35,6 @@ def do_one_trial(env, learning_rate, weights_std, path="tmp.json", n_episodes=10
 
     if save_weights:
         return ep_rewards, ep_weights
-
-
 
 
 def multiprocess_tasks(env, learning_rates, sigmas, n_episodes=100, n_cores=4):
@@ -53,19 +58,7 @@ def multiprocess_tasks(env, learning_rates, sigmas, n_episodes=100, n_cores=4):
 
         print("Set %d/%d done " % (l + 1, num_sets))
 
+
 if __name__ == "__main__":
 
-    task = SimpleTrackingTask(period=40)
-    env = SimpleHelicopter(tau=0.25, k_beta=0, task=task, name='poep')
-    # env2 = SimpleHelicopter(tau=0.25, k_beta=46000, task=task, name='snel')
-    np.random.seed()
-    n_episodes = 100
-
-    do_one_trial(env, 0.4, 0.1, n_episodes=1, results_to_json=False, plot_stats=True)
-
-
-
-
-
-
-
+    pass

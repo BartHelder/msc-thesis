@@ -118,7 +118,7 @@ def get_title(info: dict) -> str:
     return 'Episode # ' + str(info['run_number']) + ' | k_beta=' + str(info['k_beta']) + ' | tau=' + str(info['tau'])
 
 
-def plot_stats(df: pd.DataFrame, info, show_u=False):
+def plot_stats_1dof(df: pd.DataFrame, info, show_u=False):
 
     title = get_title(info)
 
@@ -145,6 +145,15 @@ def plot_stats(df: pd.DataFrame, info, show_u=False):
     plt.title(title)
     plt.legend()
     plt.show()
+
+def plot_stats_3dof(df: pd.DataFrame, info):
+
+    title = get_title(info)
+
+    #  Tracking performance plot
+    sns.set()
+    fig1 = plt.figure(figsize=FIGSIZE)
+
 
 def plot_neural_network_weights(data, info):
 

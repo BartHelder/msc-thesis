@@ -2,26 +2,36 @@ import numpy as np
 from plotting import plot_stats, plot_neural_network_weights
 import pandas as pd
 from collections import deque
-from heli_simple import SimpleHelicopter
+from heli_models import Helicopter1DOF
 
 
 class HDPAgentNumpy:
 
-    def __init__(self, discount_factor=0.95, learning_rate=0.1, run_number=0, scaling='std', weights_std=0.1, n_hidden=6):
+    def __init__(self,
+                 discount_factor=0.95,
+                 learning_rate=0.1,
+                 run_number=0,
+                 action_scaling=np.deg2rad(10),
+                 scaling='std',
+                 weights_std=0.1,
+                 n_hidden=6,
+                 n_inputs=3,
+                 n_actions=1):
         self.gamma = discount_factor
         self.learning_rate = learning_rate
+        self.action_scaling = action_scaling
 
         if scaling == 'std':
-            self.w_critic_input_to_hidden = np.random.randn(3, n_hidden) * weights_std
+            self.w_critic_input_to_hidden = np.random.randn(n_inputs, n_hidden) * weights_std
             self.w_critic_hidden_to_output = np.random.randn(n_hidden, 1) * weights_std
-            self.w_actor_input_to_hidden = np.random.randn(3, n_hidden) * weights_std
-            self.w_actor_hidden_to_output = np.random.randn(n_hidden, 1) * weights_std
+            self.w_actor_input_to_hidden = np.random.randn(n_inputs, n_hidden) * weights_std
+            self.w_actor_hidden_to_output = np.random.randn(n_hidden, n_actions) * weights_std
 
         elif scaling == 'xavier':
-            self.w_critic_input_to_hidden = np.random.randn(3, n_hidden) * np.sqrt(2 / (3+n_hidden))
+            self.w_critic_input_to_hidden = np.random.randn(n_inputs, n_hidden) * np.sqrt(2 / (n_inputs+n_hidden))
             self.w_critic_hidden_to_output = np.random.randn(n_hidden, 1) * np.sqrt(2 / (n_hidden+1))
-            self.w_actor_input_to_hidden = np.random.randn(3, n_hidden) * np.sqrt(2 / (3+n_hidden))
-            self.w_actor_hidden_to_output = np.random.randn(n_hidden, 1) * np.sqrt(2 / (n_hidden+1))
+            self.w_actor_input_to_hidden = np.random.randn(n_inputs, n_hidden) * np.sqrt(2 / (n_inputs+n_hidden))
+            self.w_actor_hidden_to_output = np.random.randn(n_hidden, n_actions) * np.sqrt(2 / (n_hidden+n_actions))
 
         self.run_number = run_number
 
@@ -30,7 +40,8 @@ class HDPAgentNumpy:
         a1 = np.matmul(obs[None, :], self.w_actor_input_to_hidden)
         h = np.tanh(a1)
         a2 = np.matmul(h, self.w_actor_hidden_to_output)
-        return (np.deg2rad(10) * np.tanh(a2))[0][0]
+
+        return (self.action_scaling * np.tanh(a2)).squeeze()
 
     def train(self, env, plotstats=True, n_updates=5, anneal_learning_rate=False, annealing_rate=0.9994):
 
@@ -45,18 +56,20 @@ class HDPAgentNumpy:
         # This is a property of the environment
         dst_da = env.get_environment_transition_function()
 
-        def _critic(observation):
-            c_hidden_in = np.matmul(observation[None, :], wci)
+        def _critic(obs):
+            c_hidden_in = np.matmul(obs[None, :], wci)
             hidden = np.tanh(c_hidden_in)
             value = np.matmul(hidden, wco)
-            return value[0][0], hidden
 
-        def _actor(observation):
-            a_hidden_in = np.matmul(observation[None, :], wai)
+            return value.squeeze(), hidden
+
+        def _actor(obs, scale=1.0):
+            a_hidden_in = np.matmul(obs[None, :], wai)
             hidden = np.tanh(a_hidden_in)
             a_out_in = np.matmul(hidden, wao)
-            action = np.deg2rad(10) * np.tanh(a_out_in)
-            return action[0][0], hidden
+            act = scale * np.tanh(a_out_in)
+
+            return act.squeeze(), hidden
 
         # Initialize environment and tracking task
         observation = env.reset()
@@ -64,13 +77,13 @@ class HDPAgentNumpy:
         weight_stats = []
         info = {'run_number': self.run_number,
                 'learning_rate': self.learning_rate,
-                'k_beta': env.k_beta,
-                'tau': env.tau}
+                'stats': env.stats}
+
         # Repeat (for each step t of an episode)
         for step in range(int(env.episode_ticks)):
 
             # 1. Obtain action from critic network using current knowledge
-            action, hidden_action = _actor(observation)
+            action, hidden_action = _actor(observation, scale=self.action_scaling)
 
             # 2. Obtain value estimate for current state
             # value, hidden_v = _critic(observation)
@@ -110,7 +123,7 @@ class HDPAgentNumpy:
                 #    get new action estimate with current actor weights
                 a, ha = _actor(observation)
                 #    backprop action through actor network
-                da_dwa_ho = np.deg2rad(10) * 1/2 * (1-a **2) * ha
+                da_dwa_ho = np.deg2rad(10) * 1/2 * (1-a**2) * ha
                 da_dwa_ih = np.deg2rad(10) * 1/2 * (1-a**2) * wao * 1/2 * (1-ha**2).T * observation[None, :]
 
                 #    chain rule to get grad of actor error to actor weights
@@ -122,13 +135,15 @@ class HDPAgentNumpy:
                 wai += self.learning_rate * -dEa_dwa_ih
                 wao += self.learning_rate * -dEa_dwa_ho
 
+            # TODO: Generalize this to work with any model, not just 1dof heli one
             # 6. Statistics
             stats.append({'t': env.task.t,
+                          'state': observation,
+                          'action': action,
                           'r': reward,
-                          'q': observation[0],
-                          'q_ref': env.task.get_ref(),
-                          'a1': observation[1],
-                          'u': action})
+                          'next_state': next_observation,
+                          'goal_state': env.task.get_ref()
+                          })
 
             observation = next_observation
             #  Weights only change slowly, so we can afford not to store 6000x49 numbers
@@ -156,6 +171,7 @@ class HDPAgentNumpy:
         action=0
         stats = []
 
+        # TODO: Generalize this to work with any model, not just 1dof heli one
         while not done:
             stats.append({'t': env.task.t, 'q': obs[0], 'q_ref': env.task.get_q_ref(), 'a1': obs[1], 'u': action})
             action = self.action(obs)
@@ -169,5 +185,6 @@ class HDPAgentNumpy:
 
         return ep_reward
 
+
 if __name__ == '__main__':
-    agent = HDPAgentNumpy()
+    agent = HDPAgentNumpy(n_inputs=6, n_actions=2, weights_std=0.4, learning_rate=0.4)
