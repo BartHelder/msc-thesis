@@ -148,21 +148,46 @@ def plot_stats_1dof(df: pd.DataFrame, info, show_u=False):
 
 def plot_stats_3dof(df: pd.DataFrame, info):
 
-    title = get_title(info)
+    #title = get_title(info)
 
     #  Tracking performance plot
     sns.set()
-    fig1 = plt.figure(figsize=FIGSIZE)
+
+    plt.figure(figsize=FIGSIZE)
+    plt.plot(df['t'], df['collective'] * 180 / np.pi, 'b--', label='collective')
+    plt.plot(df['t'], df['cyclic'] * 180 / np.pi, 'r--', label='cyclic')
+    plt.legend()
+    plt.show()
+
+    plt.figure(figsize=FIGSIZE)
+    plt.plot(df['t'], df['u'], label='u [m/s]')
+    plt.plot(df['t'], df['w'], label='w [m/s]')
+    plt.plot(df['t'], df['q'] * 180 / np.pi, label='q')
+    plt.legend()
+    plt.show()
+
+    plt.figure(figsize=FIGSIZE)
+
+    plt.plot(df['t'], df['x'], label='x [m]')
+    plt.plot(df['t'], df['z'], label='z [m]')
+    plt.plot(df['t'], df['theta']*180/np.pi, label='theta [deg]')
+    plt.legend()
+    plt.show()
+
+    plt.figure(figsize=FIGSIZE)
+    plt.plot(df['t'], df['r'], label='reward')
+    plt.legend()
+    plt.show()
 
 
 def plot_neural_network_weights(data, info):
 
     sns.set()
     sns.set_context('paper')
-    title = get_title(info)
+    title = 'title'
 
-    w_critic = data.iloc[:, :24]
-    w_actor = data.iloc[:, 24:]
+    w_critic = data.iloc[:, :42]
+    w_actor = data.iloc[:, 42:]
     fig3 = plt.figure(figsize=FIGSIZE)
     sns.lineplot(data=w_critic, dashes=False, legend=False, palette=sns.color_palette("hls", len(w_critic.columns)))
     plt.xlabel('Time [s]')
@@ -176,6 +201,40 @@ def plot_neural_network_weights(data, info):
     plt.ylabel('Neuron weight [-]')
     plt.title('Actor weights - ' + title)
     plt.show()
+
+def plot_neural_network_weights_2(data):
+
+    sns.set()
+    sns.set_context('paper')
+
+    plt.figure(figsize=FIGSIZE)
+    sns.lineplot(data=data['wci'], dashes=False, legend=False, palette=sns.color_palette("hls", len(data['wci'].columns)))
+    plt.xlabel('Time [s]')
+    plt.ylabel('Neuron weight [-]')
+    plt.title('Critic weights - input to hidden')
+    plt.show()
+
+    plt.figure(figsize=FIGSIZE)
+    sns.lineplot(data=data['wco'], dashes=False, legend=False, palette=sns.color_palette("hls", len(data['wco'].columns)))
+    plt.xlabel('Time [s]')
+    plt.ylabel('Neuron weight [-]')
+    plt.title('Critic weights - hidden to output')
+    plt.show()
+
+    plt.figure(figsize=FIGSIZE)
+    sns.lineplot(data=data['wai'], dashes=False, legend=False, palette=sns.color_palette("hls", len(data['wai'].columns)))
+    plt.xlabel('Time [s]')
+    plt.ylabel('Neuron weight [-]')
+    plt.title('Actor weights - input to hidden')
+    plt.show()
+
+    plt.figure(figsize=FIGSIZE)
+    sns.lineplot(data=data['wao'], dashes=False, legend=False, palette=sns.color_palette("hls", len(data['wao'].columns)))
+    plt.xlabel('Time [s]')
+    plt.ylabel('Neuron weight [-]')
+    plt.title('Actor weights - hidden to output')
+    plt.show()
+
 
 
 def plot_sensitivity_analysis(confidence_interval=99):

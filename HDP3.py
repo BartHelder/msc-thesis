@@ -1,5 +1,4 @@
 import numpy as np
-from plotting import plot_stats, plot_neural_network_weights
 import pandas as pd
 from collections import deque
 from heli_models import Helicopter1DOF
@@ -11,7 +10,7 @@ class HDPAgentNumpy:
                  discount_factor=0.95,
                  learning_rate=0.1,
                  run_number=0,
-                 action_scaling=np.deg2rad(10),
+                 action_scaling=np.deg2rad(15),
                  scaling='std',
                  weights_std=0.1,
                  n_hidden=6,
@@ -63,18 +62,20 @@ class HDPAgentNumpy:
 
             return value.squeeze(), hidden
 
-        def _actor(obs, scale=1.0):
-            a_hidden_in = np.matmul(obs[None, :], wai)
-            hidden = np.tanh(a_hidden_in)
-            a_out_in = np.matmul(hidden, wao)
-            act = scale * np.tanh(a_out_in)
+        def _actor(obs, scale=self.action_scaling):
+            a1 = np.matmul(obs[None, :], self.w_actor_input_to_hidden)
+            h = np.tanh(a1)
+            a2 = np.matmul(h, self.w_actor_hidden_to_output)
 
-            return act.squeeze(), hidden
+            return (scale * np.tanh(a2)).squeeze(), h
 
         # Initialize environment and tracking task
         observation = env.reset()
         stats = []
-        weight_stats = []
+        weight_stats = {'wci': [wci.ravel().copy()],
+                        'wco': [wco.ravel().copy()],
+                        'wai': [wai.ravel().copy()],
+                        'wao': [wao.ravel().copy()]}
         info = {'run_number': self.run_number,
                 'learning_rate': self.learning_rate,
                 'stats': env.stats}
@@ -89,7 +90,7 @@ class HDPAgentNumpy:
             # value, hidden_v = _critic(observation)
 
             # 3. Perform action, obtain next state and reward info
-            next_observation, reward, done = env.step(action)
+            next_observation, reward, done = env.step(action.squeeze())
 
             # TD target remains fixed per time-step to avoid oscillations
             td_target = reward + self.gamma * _critic(next_observation)[0]
@@ -123,67 +124,81 @@ class HDPAgentNumpy:
                 #    get new action estimate with current actor weights
                 a, ha = _actor(observation)
                 #    backprop action through actor network
-                da_dwa_ho = np.deg2rad(10) * 1/2 * (1-a**2) * ha
-                da_dwa_ih = np.deg2rad(10) * 1/2 * (1-a**2) * wao * 1/2 * (1-ha**2).T * observation[None, :]
+                da_dwa_ho = ha.T * (1-a**2)
+
+                da1_dwa1 = (1-a[0]**2) * wao[:, [0]] * (1-ha**2).T * observation[None, :]
+                da2_dwa1 = (1-a[1]**2) * wao[:, [1]] * (1-ha**2).T * observation[None, :]
+
+                # old: a_ih = np.deg2rad(10) * 1/2 * (1-a**2) * wao * 1/2 * (1-ha**2).T * observation[None, :]
 
                 #    chain rule to get grad of actor error to actor weights
-                scale = v * (dst_da @ dea_dst)
-                dEa_dwa_ho = scale * da_dwa_ho.T
-                dEa_dwa_ih = scale * da_dwa_ih.T
+                dEa_da = v * np.dot(dea_dst.T, dst_da) * self.action_scaling
+                dEa_dwa_ho = dEa_da * da_dwa_ho
+                dEa_dwa_ih = dEa_da[0, 0] * da1_dwa1 + dEa_da[0, 1] * da2_dwa1
 
                 #    update actor weights
-                wai += self.learning_rate * -dEa_dwa_ih
+                wai += self.learning_rate * -dEa_dwa_ih.T
                 wao += self.learning_rate * -dEa_dwa_ho
 
-            # TODO: Generalize this to work with any model, not just 1dof heli one
             # 6. Statistics
+            #if onedof: simple, else this complex one
             stats.append({'t': env.task.t,
-                          'state': observation,
-                          'action': action,
-                          'r': reward,
-                          'next_state': next_observation,
-                          'goal_state': env.task.get_ref()
-                          })
+                          'x': observation[0],
+                          'z': observation[1],
+                          'u': observation[2],
+                          'w': observation[3],
+                          'theta': observation[4],
+                          'q': observation[5],
+                          'collective': action[0],
+                          'cyclic': action[1],
+                          'r': reward})
 
             observation = next_observation
-            #  Weights only change slowly, so we can afford not to store 6000x49 numbers
+            #  Weights only change slowly, so we can afford not to store 767496743 numbers
             if (step+1) % 10 == 0:
-                weight_stats.append(np.concatenate([i.ravel() for i in [wci, wco, wai, wao]]))
+                weight_stats['wci'].append(wci.ravel().copy())
+                weight_stats['wco'].append(wco.ravel().copy())
+                weight_stats['wai'].append(wai.ravel().copy())
+                weight_stats['wao'].append(wao.ravel().copy())
 
             # Anneal learning rate (optional)
             if anneal_learning_rate and self.learning_rate > 0.01:
                 self.learning_rate *= annealing_rate
 
+            if done:
+                break
         #  Performance statistics
         episode_stats = pd.DataFrame(stats)
         episode_reward = episode_stats.r.sum()
+        weights = {'wci': pd.DataFrame(weight_stats['wci']),
+                   'wco': pd.DataFrame(weight_stats['wco']),
+                   'wai': pd.DataFrame(weight_stats['wai']),
+                   'wao': pd.DataFrame(weight_stats['wao'])}
         #print("Cumulative reward episode:#" + str(self.run_number), episode_reward)
         #  Neural network weights over time, saving only every 10th timestep because the system only evolves slowly
-        weights_history = pd.DataFrame(data=weight_stats,
-                                       index=np.arange(0, env.max_episode_length, env.dt*10))
-        if plotstats:
-            plot_stats(episode_stats, info=info, show_u=True)
+        # if plotstats:
+        #     plot_stats(episode_stats, info=info, show_u=True)
 
-        return episode_reward, weights_history, info
+        return episode_reward, weights, info, episode_stats
 
-    def test(self, env, max_steps=None, render=True):
-        obs, done, ep_reward = env.reset(), False, 0
-        action=0
-        stats = []
-
-        # TODO: Generalize this to work with any model, not just 1dof heli one
-        while not done:
-            stats.append({'t': env.task.t, 'q': obs[0], 'q_ref': env.task.get_q_ref(), 'a1': obs[1], 'u': action})
-            action = self.action(obs)
-            obs, reward, done = env.step(action)
-            ep_reward += reward
-            max_episode_length = env.max_episode_length if max_steps is None else max_steps
-
-        if render:
-            df = pd.DataFrame(stats)
-            plot_stats(df, 'test', True)
-
-        return ep_reward
+    # def test(self, env, max_steps=None, render=True):
+    #     obs, done, ep_reward = env.reset(), False, 0
+    #     action=0
+    #     stats = []
+    #
+    #     # TODO: Generalize this to work with any model, not just 1dof heli one
+    #     while not done:
+    #         stats.append({'t': env.task.t, 'q': obs[0], 'q_ref': env.task.get_q_ref(), 'a1': obs[1], 'u': action})
+    #         action = self.action(obs)
+    #         obs, reward, done = env.step(action)
+    #         ep_reward += reward
+    #         max_episode_length = env.max_episode_length if max_steps is None else max_steps
+    #
+    #     if render:
+    #         df = pd.DataFrame(stats)
+    #         plot_stats(df, 'test', True)
+    #
+    #     return ep_reward
 
 
 if __name__ == '__main__':

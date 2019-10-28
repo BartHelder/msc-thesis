@@ -36,10 +36,13 @@ class SimpleTrackingTask(Task):
 
 class HoverTask(Task):
 
-    def __init__(self, ):
-        super().__init__()
-        self.selected_states = np.array([1, 1, 0, 0, 1, 0, 0])
-        self.state_weights = np.array([1, 1, 100])
+    def __init__(self, dt):
+        super().__init__(dt)
+        self.selected_states = np.array([[0, 0, 1, 0, 0, 0, 0],
+                                        [0, 0, 0, 1, 0, 0, 0],
+                                         [0, 0, 0, 0, 1, 0, 0]])
+
+        self.state_weights = np.diag([1, 1, 100])
 
     def get_ref(self):
         return np.array([0, 0, 0])

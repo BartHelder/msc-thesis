@@ -4,13 +4,10 @@ import itertools
 from collections import defaultdict
 import seaborn as sns
 import matplotlib.pyplot as plt
-import pandas as pd
-import sys
-import plotting
-from gym.envs.classic_control import cartpole
 from gym import spaces
 from typing import Union
 from gym.utils import seeding
+from tasks import SimpleTrackingTask, HoverTask
 
 
 class Helicopter1DOF:
@@ -119,10 +116,11 @@ class Helicopter1DOF:
 
 class Helicopter3DOF:
 
-    def __init__(self, task, dt=0.02, t_max=40):
+    def __init__(self, task, dt=0.01, t_max=120):
         self.task = task
         self.dt = dt
-        self.t_max = t_max
+        self.max_episode_length = t_max
+        self.episode_ticks = self.max_episode_length / self.dt
         self.n_actions = 2
 
         self.g = 9.81
@@ -145,7 +143,7 @@ class Helicopter3DOF:
 
         self.stats = {}
 
-    def reset(self, v_initial=0):
+    def reset(self, v_initial=0.5):
 
         trimmed_controls, trimmed_state = self._trim(v_initial)
         self.state = trimmed_state
@@ -165,6 +163,8 @@ class Helicopter3DOF:
         :param kwargs:
         :return:
         """
+
+        ref = self.task.step()
 
         collective, cyclic_pitch = actions
         x, z, u, w, pitch, q, lambda_i = self.state
@@ -205,33 +205,40 @@ class Helicopter3DOF:
         u += u_dot * self.dt
         w += w_dot * self.dt
         pitch += pitch_dot * self.dt
+        pitch = np.arctan2(np.sin(pitch), np.cos(pitch))
         q += q_dot * self.dt
         lambda_i += lambda_i_dot * self.dt
+
         self.t += self.dt
 
         state = np.array([x, z, u, w, pitch, q, lambda_i])
 
-        if kwargs['goal_state']:
-            reward = self._get_reward(goal_state=self.task.get_ref(), actual_state=state)
+        if True:
+            reward = self._get_reward(goal_state=ref, actual_state=state)
         else:
             reward = 0
-        # Todo: implement reward and done
         # Save results:
         if not virtual:
             self.state = state
 
+        # If the pitch angle gets too extreme, end the simulation
         done = False
+        if np.abs(np.rad2deg(pitch)) > 90:
+            done = True
 
         return state, reward, done
 
-    def get_environment_transition_function(self):
+    def get_environment_transition_function(self, h=0.001):
+        """
+        Returns the instantaneous environment transition derivative ds/da
+        :return: numpy array of ds/da of shape (len(s), len(a))
+        """
+        ds_da1 = (self.step(actions=np.array([1+h, 1]), virtual=True)[0]
+                  - self.step(actions=np.array([1, 1]), virtual=True)[0]) / h
+        ds_da2 = (self.step(actions=np.array([1, 1+h]), virtual=True)[0]
+                  - self.step(actions=np.array([1, 1]), virtual=True)[0]) / h
 
-        #TODO: finish
-        h = 0.001
-        ds_da1 = (self.step(actions=np.array([1+h, 1]), virtual=True)[0] - self.step(actions=np.array([1.001, 1]), virtual=True)[0]) / h
-        ds_da2 = (self.step(actions=np.array([1, 1+h]), virtual=True)[0] - self.step(actions=np.array([1.001, 1]), virtual=True)[0]) / h
-
-        return
+        return np.array([ds_da1, ds_da2]).T
 
     def _trim(self, v_trim: Union[float, int] = 3):
         """
@@ -272,16 +279,20 @@ class Helicopter3DOF:
 
     def _get_reward(self, goal_state, actual_state) -> float:
 
-        reward = -((self.task.selected_states*actual_state - goal_state)
-                   * self.task.state_weights
-                   * (self.task.selected_states*actual_state - goal_state))
+        P = self.task.selected_states
+        Q = self.task.state_weights
+
+        error = (P @ actual_state - goal_state)
+
+        reward = -(error.T @ Q @ error).squeeze()
 
         return reward
 
 
 if __name__ == "__main__":
-    env = Helicopter3DOF(dt=0.02)
-    env.reset(v_initial=15)
+    task = HoverTask()
+    env = Helicopter3DOF(dt=0.02, task=task)
+    env.reset(v_initial=3)
 
     sns.set()
     trim_speeds = np.arange(0, 101, 0.1)
