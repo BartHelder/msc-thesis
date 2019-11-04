@@ -139,17 +139,9 @@ class Helicopter3DOF:
         self.tau = 0.1
         # self.state = np.array([x, z, u, w, pitch_fuselage, q, lambda_i])
         self.state = np.array([0, 0, 0, 0, 0, 0, 0])
-        self.t = 0
+        self.t = 0.0
 
         self.stats = {}
-
-    def reset(self, v_initial=0.5):
-
-        trimmed_controls, trimmed_state = self._trim(v_initial)
-        self.state = trimmed_state
-        self.t = 0
-
-        return self.state
 
     def step(self, actions, virtual=False, **kwargs):
         """
@@ -205,11 +197,9 @@ class Helicopter3DOF:
         u += u_dot * self.dt
         w += w_dot * self.dt
         pitch += pitch_dot * self.dt
-        pitch = np.arctan2(np.sin(pitch), np.cos(pitch))
+        pitch = np.arctan2(np.sin(pitch), np.cos(pitch))  # Get value clipped between +-180 deg
         q += q_dot * self.dt
         lambda_i += lambda_i_dot * self.dt
-
-        self.t += self.dt
 
         state = np.array([x, z, u, w, pitch, q, lambda_i])
 
@@ -219,6 +209,7 @@ class Helicopter3DOF:
             reward = 0
         # Save results:
         if not virtual:
+            self.t += self.dt
             self.state = state
 
         # If the pitch angle gets too extreme, end the simulation
@@ -239,6 +230,15 @@ class Helicopter3DOF:
                   - self.step(actions=np.array([1, 1]), virtual=True)[0]) / h
 
         return np.array([ds_da1, ds_da2]).T
+
+    def reset(self, v_initial=0.5):
+
+        trimmed_controls, trimmed_state = self._trim(v_initial)
+        self.state = trimmed_state
+        self.t = 0
+
+        return self.state, trimmed_controls
+
 
     def _trim(self, v_trim: Union[float, int] = 3):
         """
@@ -290,8 +290,9 @@ class Helicopter3DOF:
 
 
 if __name__ == "__main__":
-    task = HoverTask()
-    env = Helicopter3DOF(dt=0.02, task=task)
+    dt = 0.02
+    task = HoverTask(dt=dt)
+    env = Helicopter3DOF(dt=dt, task=task)
     env.reset(v_initial=3)
 
     sns.set()

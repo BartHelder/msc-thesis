@@ -61,18 +61,25 @@ def multiprocess_tasks(env, learning_rates, sigmas, n_episodes=100, n_cores=4):
 
 if __name__ == "__main__":
 
-    dt = 0.01
+    dt = 0.01  # s
+    trim_speed = 3  # m/s
     task = HoverTask(dt=dt)
-    env = Helicopter3DOF(task=task, t_max=90, dt=dt)
-    agent = HDPAgentNumpy(discount_factor=0.99,
+    env = Helicopter3DOF(task=task, t_max=120, dt=dt)
+    agent = HDPAgentNumpy(discount_factor=0.999,
                           learning_rate=0.01,
                           run_number=1,
-                          weights_std=0.001,
-                          n_hidden=10,
+                          weights_std=0.015,
+                          n_hidden=30,
                           n_inputs=len(env.state),
-                          n_actions=2)
+                          n_actions=2,
+                          action_scaling=np.deg2rad(10))
 
-    rewards, weights, info, stats = agent.train(env, plotstats=False, n_updates=2)
+    rewards, weights, info, stats = agent.train(env=env,
+                                                anneal_learning_rate=True,
+                                                annealing_rate=0.999,
+                                                trim_speed=trim_speed,
+                                                plotstats=False,
+                                                n_updates=5)
 
     plot_stats_3dof(stats, info=info)
-    plot_neural_network_weights_2(weights)
+    #plot_neural_network_weights_2(weights)

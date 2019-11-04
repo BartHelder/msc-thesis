@@ -9,7 +9,7 @@ import os
 import json
 
 EpisodeStats = namedtuple("Stats",["episode_lengths", "episode_rewards"])
-FIGSIZE = (8, 6)
+FIGSIZE = (10, 6)
 
 
 def plot_cost_to_go_mountain_car(env, estimator, num_tiles=20):
@@ -154,28 +154,35 @@ def plot_stats_3dof(df: pd.DataFrame, info):
     sns.set()
 
     plt.figure(figsize=FIGSIZE)
-    plt.plot(df['t'], df['collective'] * 180 / np.pi, 'b--', label='collective')
-    plt.plot(df['t'], df['cyclic'] * 180 / np.pi, 'r--', label='cyclic')
+    plt.plot(df['t'], df['collective'] * 180/np.pi, 'b--', label='collective')
+    plt.plot(df['t'], df['cyclic'] * 180/np.pi, 'r--', label='cyclic')
+    plt.xlabel('Time [s]')
+    plt.ylabel('Control deflection [deg]')
     plt.legend()
     plt.show()
 
     plt.figure(figsize=FIGSIZE)
-    plt.plot(df['t'], df['u'], label='u [m/s]')
-    plt.plot(df['t'], df['w'], label='w [m/s]')
-    plt.plot(df['t'], df['q'] * 180 / np.pi, label='q')
-    plt.legend()
-    plt.show()
-
-    plt.figure(figsize=FIGSIZE)
-
-    plt.plot(df['t'], df['x'], label='x [m]')
-    plt.plot(df['t'], df['z'], label='z [m]')
+    # plt.plot(df['t'], df['u'], label='u [m/s]')
+    # plt.plot(df['t'], df['w'], label='w [m/s]')
+    plt.plot(df['t'], df['q'] * 180 / np.pi, label='q [deg/s]')
     plt.plot(df['t'], df['theta']*180/np.pi, label='theta [deg]')
+    plt.xlabel('Time [s]')
     plt.legend()
     plt.show()
+
+    # plt.figure(figsize=FIGSIZE)
+    #
+    # plt.plot(df['t'], df['x'], label='x [m]')
+    # plt.plot(df['t'], df['z'], label='z [m]')
+    # plt.xlabel('Time [s]')
+    # plt.ylabel("Distance [m]")
+    # plt.legend()
+    # plt.show()
 
     plt.figure(figsize=FIGSIZE)
     plt.plot(df['t'], df['r'], label='reward')
+    plt.xlabel('Time [s]')
+
     plt.legend()
     plt.show()
 

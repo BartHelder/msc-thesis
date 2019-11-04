@@ -1,282 +1,194 @@
+from __future__ import absolute_import, division, print_function, unicode_literals
+
 import numpy as np
 import tensorflow as tf
 import tensorflow.keras.layers as kl
 import tensorflow.keras.losses as kls
 import tensorflow.keras.optimizers as ko
-from plotting import plot_stats
 import pandas as pd
-from collections import deque
-from heli_simple import SimpleHelicopter
+from functools import partial
 
 
-class Model(tf.keras.Model):
-    def __init__(self):
-        super().__init__('mlp_policy')
-        self.h1_p = kl.Dense(6,  activation='tanh')
-        self.h1_v = kl.Dense(6, activation='tanh')
-        self.policy = kl.Dense(1, name='policy')
-        self.value = kl.Dense(1, name='value')
-
-    def call(self, inputs):
-        # input goes via numpy array, so convert to Tensor first
-        x = tf.convert_to_tensor(inputs, dtype=tf.float32)
-
-        # separate hidden layers from the same input tensor
-        p1 = self.h1_p(x)
-        v1 = self.h1_v(x)
-
-        return self.policy(p1), self.value(v1)
-
-    def action_value(self, obs):
-        # executes call() under the hood
-        action, value = self.predict(obs)
-
-        return np.squeeze(action, axis=-1), np.squeeze(value, axis=-1)
-
-def scaled_tanh(input, scale=np.deg2rad(5)):
-    return tf.keras.backend.tanh(input) * scale
+def scaled_tanh(scale, x):
+    return tf.keras.backend.tanh(x) * scale
 
 
-class nn_actor(tf.keras.Model):
+class TFActor(tf.keras.Model):
 
-    def __init__(self):
-        super().__init__('mlp_policy')
-        self.h1_p = kl.Dense(6, activation='tanh')
-        self.policy = kl.Dense(1, activation='linear')
+    def __init__(self, n_hidden, action_scaling):
+        super(TFActor, self).__init__()
+        self.h1 = kl.Dense(n_hidden, activation='tanh')
+        self.a = kl.Dense(2, activation=partial(scaled_tanh, action_scaling))
 
-    def call(self, input):
-        x = tf.convert_to_tensor(input, dtype=tf.float32)
-        p1 = self.h1_p(x)
-        return self.policy(p1)
-
-    def action(self, obs):
-        action = self.predict(obs)
-        return np.squeeze(action, axis=-1)
-        # return action
+    def call(self, x):
+        x = self.h1(x)
+        return self.a(x)
 
 
-class nn_critic(tf.keras.Model):
+class TFCritic(tf.keras.Model):
 
-    def __init__(self):
-        super().__init__('mlp_critic')
-        self.h1_c = kl.Dense(6, activation='tanh')
-        self.critic = kl.Dense(1, name='value')
+    def __init__(self, n_hidden):
+        super(TFCritic, self).__init__()
+        self.h1 = kl.Dense(n_hidden, activation='tanh')
+        self.v = kl.Dense(1, name='value')
 
-    def call(self, input):
-        x = tf.convert_to_tensor(input, dtype=tf.float32)
-        v1 = self.h1_c(x)
-        return self.critic(v1)
-
-    def value(self, obs):
-        value = self.predict(obs)
-        return np.squeeze(value, axis=-1)
+    def call(self, x):
+        x = self.h1(x)
+        return self.v(x)
 
 
-nn_actor2 = tf.keras.Sequential([
-    kl.Dense(6,  activation='tanh'),
-    kl.Dense(1, activation=scaled_tanh)
-])
+class HDPAgentTF:
 
+    def __init__(self,
+                 discount_factor=0.95,
+                 learning_rate_actor=0.1,
+                 learning_rate_critic=0.1,
+                 run_number=0,
+                 action_scaling=np.deg2rad(15),
+                 n_hidden=6):
+        self.actor = TFActor(n_hidden=n_hidden, action_scaling=action_scaling)
+        self.critic = TFCritic(n_hidden=n_hidden)
+        self.optimizer_actor = ko.Adam(lr=learning_rate_actor)
+        self.optimizer_critic = ko.Adam(lr=learning_rate_critic)
+        self.gamma = discount_factor
+        self.action_scaling = action_scaling
+        self.info = {'run_number': run_number,
+                     'n_hidden': n_hidden,
+                     'lr_actor': learning_rate_actor,
+                     'lr_critic': learning_rate_critic}
 
-nn_critic2 = tf.keras.Sequential([
-    kl.Dense(6,  activation='tanh'),
-    kl.Dense(1, activation='linear')
-])
-
-
-
-optimizer_ac = ko.SGD(lr=0.001)
-optimizer_critic = ko.SGD(lr=0.01)
-loss_fn = kls.mean_squared_error
-
-loss_metric = tf.keras.metrics.Mean(name='train_loss')
-
-
-class HDPAgent:
-
-    def __init__(self, actor=nn_actor2, critic=nn_critic2):
-        self.gamma = 0.99
-        self.actor = actor
-        self.critic = critic
-
-
+    @tf.function
     def train(self,
               env,
-              n_episodes=500,
-              n_updates_critic=5,
-              n_updates_actor=5,
-              threshold_loss_critic=0.05,
-              threshold_loss_actor=0.01):
-
-        # updates = int(env.max_episode_length / (env.dt * batch_size))
-        # # storage helpers for a single batch of data
-        # actions = np.empty((batch_size,), dtype=np.int32)
-        # rewards, dones, values, = np.empty((3, batch_size))
-        # observations = np.empty((batch_size,) + env.observation_space.shape)
+              trim_speed,
+              plotstats=True,
+              n_updates=5,
+              anneal_learning_rate=False,
+              annealing_rate=0.9994):
 
         # training loop: collect samples, send to optimizer, repeat updates times
         episode_rewards = [0.0]
-        task = TrackingTask(dt=env.dt)
 
-        for n_episode in range(n_episodes):
-            if (n_episode + 1) % 10 == 0:
-                print("Update # " + str(n_episode + 1))
-                self.test(env, render=True)
+        # This is a property of the environment
+        dst_da = env.get_environment_transition_function()
 
-            # Initialize environment and tracking task
-            observation = env.reset()
-            action = self.actor(observation[None, :])
-            value = self.critic(observation[None, :])
-            next_observation, reward, done = env.step(action.numpy()[0][0])
-
-            previous_value = value
-            observation = next_observation
-
-            # Repeat (for each step t of an episode)
-            for step in range(int(env.episode_ticks)):
-
-                action = self.actor(observation[None, :])
-                value = self.critic(observation[None, :])
-                next_observation, reward, done = env.step(action.numpy()[0][0])
-
-                td_target = reward + self.gamma * value - previous_value
-
-                for j in range(2):
-                    with tf.GradientTape() as tape:
-                        loss_critic = 1/2 * kls.mean_squared_error(td_target, self.critic(observation[None, :]))
-
-                    dEc_dwc = tape.gradient(loss_critic, self.critic.trainable_variables)
-                    optimizer_critic.apply_gradients(zip(dEc_dwc, self.critic.trainable_variables))
-
-                    with tf.GradientTape as tape2:
-                        loss_actor = 1/2 * kls.mean_squared_error()
-
-                    # dEa_dea =
-                    # dea_dV = 1
-                    # dV_ds =
-                    #ds_da = np.array([-0.04062, 0.0001293, -0.04062]).reshape((3, 1))
-                    #da_dwa =
-
-
-                # 1. Update critic
-                with tf.GradientTape(persistent=True) as tape:
-                    tape.watch(no)
-                    act = self.actor(observation[None, :])
-                    tape.watch(act)
-                    next_value = self.critic(no)
-                    tape.watch(next_value)
-                    td_target = reward + self.gamma * next_value
-                    tape.watch(td_target)
-
-
-                dEc_dwc = tape.gradient(loss1, self.critic.trainable_variables)
-                optimizer_critic.apply_gradients(zip(dEc_dwc, self.critic.trainable_variables))
-
-                # 2. Update actor
-
-                dV_ds = tape.gradient(next_value, no)
-                da_dwa = tape.gradient(act, self.actor.trainable_variables)
-                ds_da = np.array([-0.04062, 0.0001293, -0.04062]).reshape((3, 1))
-                dEa_da = tf.matmul(tf.multiply(next_value, dV_ds), ds_da)
-                dEa_dwa = [tf.multiply(dEa_da, i) for i in da_dwa]
-                dEa_dwa[1] = tf.squeeze(dEa_dwa[1])
-                dEa_dwa[3] = tf.reshape(dEa_dwa[3], (1,))
-                optimizer_ac.apply_gradients(zip(dEa_dwa, self.actor.trainable_variables))
-
-
-                observation = next_observation
-                value = next_value
-
-            print('episode done')
-            self.test(env, max_steps=80)
-        return episode_rewards
-
-    def test(self, env, max_steps=None, render=True):
-        obs, done, ep_reward = env.reset(), False, 0
-        action = 0
+        # Initialize environment and tracking task
+        observation, trim_actions = env.reset(v_initial=trim_speed)
         stats = []
-        while not done:
-            stats.append({'t': env.task.t, 'q': obs[0], 'q_ref': env.task.get_q_ref(), 'a1': obs[1], 'u': action})
-            action = self.actor(obs[None, :])
-            obs, reward, done = env.step(action.numpy()[0][0], env.task.get_q_ref())
-            ep_reward += reward
-            max_episode_length = env.max_episode_length if max_steps is None else max_steps
-            if env.task.t > max_episode_length:
-                done=True
-        if render:
-            df = pd.DataFrame(stats)
-            plot_stats(df, 'final')
 
-        return ep_reward
+        # Repeat (for each step t of an episode)
+        for step in range(int(env.episode_ticks)):
 
-    def _train_step(self, reward, value, observation, next_observation):
+            # 1. Obtain action from critic network using current knowledge
+            with tf.GradientTape() as tape:
+                action = self.actor()
+            action, hidden_action = _actor(observation, scale=self.action_scaling)
 
-        # 1. Update critic
-        with tf.GradientTape(persistent=True) as tape:
-            tape.watch(no)
-            act = self.actor(observation[None, :])
-            tape.watch(act)
-            next_value = self.critic(no)
-            tape.watch(next_value)
-            td_target = reward + self.gamma * next_value
-            tape.watch(td_target)
-            loss1 = kls.mean_squared_error(td_target, value)
+            # 2. Obtain value estimate for current state
+            # value, hidden_v = _critic(observation)
 
-        dEc_dwc = tape.gradient(loss1, self.critic.trainable_variables)
-        optimizer_critic.apply_gradients(zip(dEc_dwc, self.critic.trainable_variables))
+            # 3. Perform action, obtain next state and reward info
+            next_observation, reward, done = env.step(trim_actions + action)
 
-        # 2. Update actor
+            # TD target remains fixed per time-step to avoid oscillations
+            td_target = reward + self.gamma * _critic(next_observation)[0]
 
-        dV_ds = tape.gradient(next_value, no)
-        da_dwa = tape.gradient(act, self.actor.trainable_variables)
-        ds_da = np.array([-env.th_iy * env.dt, env.dt / env.tau, -env.th_iy * env.dt]).reshape((3, 1))
-        dEa_da = tf.matmul(tf.multiply(next_value, dV_ds), ds_da)
-        dEa_dwa = [tf.multiply(dEa_da, i) for i in da_dwa]
-        dEa_dwa[1] = tf.squeeze(dEa_dwa[1])
-        dEa_dwa[3] = tf.reshape(dEa_dwa[3], (1,))
-        optimizer_ac.apply_gradients(zip(dEa_dwa, self.actor.trainable_variables))
+            # Update models x times per timestep
+            for j in range(n_updates):
 
-        del tape
+                # 4. Update critic: error is td_target minus value estimate for current observation
+                v, hc = _critic(observation)
+                e_c = td_target - v
 
-        return loss1
+                #  dEc/dwc = dEc/dec * dec/dV * dV/dwc  = standard backprop of TD error through critic network
+                dEc_dec = e_c
+                dec_dV = -1
+                dV_dwc_ho = hc
+                dV_dwc_ih = wco * (1-hc**2).T * observation[None, :]
+
+                dEc_dwc_ho = dEc_dec * dec_dV * dV_dwc_ho
+                dEc_dwc_ih = dEc_dec * dec_dV * dV_dwc_ih
+
+                wci += self.learning_rate * -dEc_dwc_ih.T
+                wco += self.learning_rate * -dEc_dwc_ho.T
+
+                # 5. Update actor
+                # dEa_dwa = dEa_dea * dea_dst * dst_du * du_dwa   = V(S_t) * dV/ds * ds/da * da/dwa
+                #    get new value estimate for current observation with new critic weights
+                v, h = _critic(observation)
+                #  backpropagate value estimate through critic to input
+                dea_dst = wci @ (wco * (1-h**2).T)
+
+                #    get new action estimate with current actor weights
+                a, ha = _actor(observation)
+                #    backprop action through actor network
+                da_dwa_ho = ha.T * (1-a**2)
+
+                daN_dwa1 = [0] * len(a)
+                for j in range(len(a)):
+                    daN_dwa1[j] = (1-a[j]**2) * wao[:, [j]] * (1-ha**2).T * observation[None, :]
+
+                # old: a_ih = np.deg2rad(10) * 1/2 * (1-a**2) * wao * 1/2 * (1-ha**2).T * observation[None, :]
+                if step % 100 == 0:
+                    dst_da = env.get_environment_transition_function()
+                #    chain rule to get grad of actor error to actor weights
+                dEa_da = v * np.dot(dea_dst.T, dst_da) * self.action_scaling
+                dEa_dwa_ho = dEa_da * da_dwa_ho
+                dEa_dwa_ih = sum([-x*y for x, y in zip(dEa_da.ravel(), daN_dwa1)])
+
+                #    update actor weights
+                wai += self.learning_rate * dEa_dwa_ih.T
+                wao += self.learning_rate * dEa_dwa_ho
+
+            # 6. Statistics
+            #if onedof: simple, else this complex one
+            stats.append({'t': env.task.t,
+                          'x': observation[0],
+                          'z': observation[1],
+                          'u': observation[2],
+                          'w': observation[3],
+                          'theta': observation[4],
+                          'q': observation[5],
+                          'collective': action[0] + trim_actions[0],
+                          'cyclic': action[1] + trim_actions[1],
+                          'r': reward})
+
+            observation = next_observation
+            #  Weights only change slowly, so we can afford not to store 767496743 numbers
+            if (step+1) % 10 == 0:
+                weight_stats['t'].append(env.task.t)
+                weight_stats['wci'].append(wci.ravel().copy())
+                weight_stats['wco'].append(wco.ravel().copy())
+                weight_stats['wai'].append(wai.ravel().copy())
+                weight_stats['wao'].append(wao.ravel().copy())
+
+            # Anneal learning rate (optional)
+            if anneal_learning_rate and self.learning_rate > 0.01:
+                self.learning_rate *= annealing_rate
+
+            if done:
+                break
+        #  Performance statistics
+        episode_stats = pd.DataFrame(stats)
+        episode_reward = episode_stats.r.sum()
+        weights = {'wci': pd.DataFrame(data=weight_stats['wci'], index=weight_stats['t']),
+                   'wco': pd.DataFrame(data=weight_stats['wco'], index=weight_stats['t']),
+                   'wai': pd.DataFrame(data=weight_stats['wai'], index=weight_stats['t']),
+                   'wao': pd.DataFrame(data=weight_stats['wao'], index=weight_stats['t'])}
+        #print("Cumulative reward episode:#" + str(self.run_number), episode_reward)
+        #  Neural network weights over time, saving only every 10th timestep because the system only evolves slowly
+        # if plotstats:
+        #     plot_stats(episode_stats, info=info, show_u=True)
+
+        return episode_reward, weights, info, episode_stats
 
 
+if __name__ == "__main__":
+    actor = TFActor(n_hidden=6, action_scaling=1)
+    loss_object = kls.MeanSquaredError()
+    state = np.array([1, 2, 3, 4, 5])
+    with tf.GradientTape() as tape:
+        a = actor(state[None, :])
 
-class TrackingTask:
+    gradients = tape.gradient(a, actor.trainable_variables)
 
-    def __init__(self,
-                 amplitude=np.deg2rad(3),
-                 period=20,
-                 dt=0.02):
-        self.amplitude = amplitude
-        self.period = period   # seconds
-        self.dt = dt
-        self.t = 0
-        self.q_ref = 0
-
-    def get_q_ref(self):
-        return self.amplitude * np.sin(2 * np.pi * self.t / self.period)
-
-    def step(self):
-        self.t += self.dt
-        return self.get_q_ref()
-
-    def reset(self):
-        self.t = 0
-        return self.get_q_ref()
-
-
-if __name__ == '__main__':
-
-    task = TrackingTask(period=40)
-    env = SimpleHelicopter(tau=0.05, k_beta=400000, task=task, name='poep')
-    agent = HDPAgent()
-    np.random.seed()
-    print("Before training: %f out of 200" % agent.test(env, render=True))
-    print("Starting training phase...")
-    rewards_history = agent.train(env)
-    print("Finished training, testing...")
-    print("After training: %f out of 200" % agent.test(env, max_steps=80, render=True))
-
-    env2 = SimpleHelicopter(tau=0.25, k_beta=1000)
-    agent.test(env2, max_steps=80, render=True)
