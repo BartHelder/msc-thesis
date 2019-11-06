@@ -197,7 +197,7 @@ class Helicopter3DOF:
         u += u_dot * self.dt
         w += w_dot * self.dt
         pitch += pitch_dot * self.dt
-        pitch = np.arctan2(np.sin(pitch), np.cos(pitch))  # Get value clipped between +-180 deg
+        #pitch = np.arctan2(np.sin(pitch), np.cos(pitch))  # Get value clipped between +-180 deg
         q += q_dot * self.dt
         lambda_i += lambda_i_dot * self.dt
 
@@ -224,12 +224,15 @@ class Helicopter3DOF:
         Returns the instantaneous environment transition derivative ds/da
         :return: numpy array of ds/da of shape (len(s), len(a))
         """
-        ds_da1 = (self.step(actions=np.array([1+h, 1]), virtual=True)[0]
-                  - self.step(actions=np.array([1, 1]), virtual=True)[0]) / h
-        ds_da2 = (self.step(actions=np.array([1, 1+h]), virtual=True)[0]
-                  - self.step(actions=np.array([1, 1]), virtual=True)[0]) / h
+        ds_da1 = (self.step(actions=np.array([0.1+h, 0.1]), virtual=True)[0]
+                  - self.step(actions=np.array([0.1, 0.1]), virtual=True)[0]) / h
+        ds_da2 = (self.step(actions=np.array([0.1, 0.1+h]), virtual=True)[0]
+                  - self.step(actions=np.array([0.1, 0.1]), virtual=True)[0]) / h
 
-        return np.array([ds_da1, ds_da2]).T
+        x1 = np.append(ds_da1, -ds_da1[5])
+        x2 = np.append(ds_da2, -ds_da2[5])
+
+        return np.array([x1, x2]).T
 
     def reset(self, v_initial=0.5):
 

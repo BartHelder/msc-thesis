@@ -154,7 +154,7 @@ def plot_stats_3dof(df: pd.DataFrame, info):
     sns.set()
 
     plt.figure(figsize=FIGSIZE)
-    plt.plot(df['t'], df['collective'] * 180/np.pi, 'b--', label='collective')
+    #plt.plot(df['t'], df['collective'] * 180/np.pi, 'b--', label='collective')
     plt.plot(df['t'], df['cyclic'] * 180/np.pi, 'r--', label='cyclic')
     plt.xlabel('Time [s]')
     plt.ylabel('Control deflection [deg]')
@@ -165,8 +165,10 @@ def plot_stats_3dof(df: pd.DataFrame, info):
     # plt.plot(df['t'], df['u'], label='u [m/s]')
     # plt.plot(df['t'], df['w'], label='w [m/s]')
     plt.plot(df['t'], df['q'] * 180 / np.pi, label='q [deg/s]')
-    plt.plot(df['t'], df['theta']*180/np.pi, label='theta [deg]')
+    plt.plot(df['t'], df['qref'] * 180 / np.pi, '--', label='qref [deg/s]')
+    #plt.plot(df['t'], df['theta'] * 180/np.pi, label='theta [deg]')
     plt.xlabel('Time [s]')
+    plt.ylabel('Pitch rate [deg/s]')
     plt.legend()
     plt.show()
 
@@ -181,6 +183,7 @@ def plot_stats_3dof(df: pd.DataFrame, info):
 
     plt.figure(figsize=FIGSIZE)
     plt.plot(df['t'], df['r'], label='reward')
+    plt.ylabel('Reward [-]')
     plt.xlabel('Time [s]')
 
     plt.legend()

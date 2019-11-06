@@ -1,6 +1,6 @@
 from heli_models import Helicopter1DOF, Helicopter3DOF
-from HDP3 import HDPAgentNumpy
 from tasks import SimpleTrackingTask, HoverTask
+import HDP3
 import numpy as np
 import multiprocessing as mp
 import itertools
@@ -62,24 +62,23 @@ def multiprocess_tasks(env, learning_rates, sigmas, n_episodes=100, n_cores=4):
 if __name__ == "__main__":
 
     dt = 0.01  # s
-    trim_speed = 3  # m/s
+    trim_speed = 10  # m/s
     task = HoverTask(dt=dt)
     env = Helicopter3DOF(task=task, t_max=120, dt=dt)
-    agent = HDPAgentNumpy(discount_factor=0.999,
-                          learning_rate=0.01,
+    agent = HDP3.HDPAgentNumpySplit(discount_factor=0.6,
+                          learning_rate=0.05,
                           run_number=1,
-                          weights_std=0.015,
-                          n_hidden=30,
-                          n_inputs=len(env.state),
-                          n_actions=2,
-                          action_scaling=np.deg2rad(10))
+                          weights_std=0.2,
+                          n_hidden=8,
+                          n_inputs_critic=7,
+                          action_scaling=np.deg2rad(2))
 
     rewards, weights, info, stats = agent.train(env=env,
                                                 anneal_learning_rate=True,
-                                                annealing_rate=0.999,
+                                                annealing_rate=0.9999,
                                                 trim_speed=trim_speed,
                                                 plotstats=False,
-                                                n_updates=5)
+                                                n_updates=1)
 
     plot_stats_3dof(stats, info=info)
     #plot_neural_network_weights_2(weights)

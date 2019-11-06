@@ -38,12 +38,9 @@ class HoverTask(Task):
 
     def __init__(self, dt):
         super().__init__(dt)
-        self.selected_states = np.array([[0, 0, 0, 0, 0, 0, 0],
-                                        [0, 0, 0, 0, np.rad2deg(2), 0, 0],
-                                         [0, 0, 0, 0, 0, np.rad2deg(1), 0]])
-
-        self.state_weights = np.diag([1, 1, 1])
+        self.selected_states = np.array([[0, 0, 0, 0, 0, 1, 0]])
+        self.state_weights = np.diag([1000])
 
     def get_ref(self):
-        return np.array([0, 0, 0])
+        return 3 * np.pi / 180 * np.sin(2 * np.pi * self.t / 40)
 
