@@ -277,8 +277,9 @@ class HDPAgentNumpySplit:
 
         # Initialize environment and tracking task
         observation, trim_actions = env.reset(v_initial=trim_speed)
-        observation = observation
-
+        hdot_corr = 0
+        hdot_ref = 0
+        hdot = 0
         stats = []
         weight_stats = {'t': [0],
                         'wci': [wci.ravel().copy()],
@@ -292,6 +293,9 @@ class HDPAgentNumpySplit:
 
         # Repeat (for each step t of an episode)
         for step in range(int(env.episode_ticks)):
+
+            # if env.t > 90:
+            #     self.learning_rate = 0
 
             #  Weights only change slowly, so we can afford not to store 767496743 numbers
             if (step+1) % 10 == 0:
@@ -307,7 +311,14 @@ class HDPAgentNumpySplit:
 
             cyclic, hidden_cyc = _actor(s_aug, scale=self.action_scaling)
             # action = [collective, cyclic]
-            action = [trim_actions[0], cyclic]
+            h_ref = 25
+
+            h = -observation[1]
+            hdot_ref = 0.1 * (h_ref - h)
+            hdot = (observation[2] * np.sin(observation[4]) - observation[3] * np.cos(observation[4]))
+            collective = np.deg2rad(trim_actions[0] + 2 * (hdot_ref - hdot) + 0.3 * hdot_corr)
+
+            action = [collective, cyclic]
 
             # 2. Obtain value estimate for current state
             # value, hidden_v = _critic(observation)
@@ -378,6 +389,7 @@ class HDPAgentNumpySplit:
                           'cyclic': action[1],
                           'r': reward})
 
+            hdot_corr += env.dt * (hdot_ref - hdot)
             observation = next_observation
             # Anneal learning rate (optional)
             if anneal_learning_rate and self.learning_rate > 0.01:

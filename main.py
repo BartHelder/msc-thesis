@@ -64,18 +64,18 @@ if __name__ == "__main__":
     dt = 0.01  # s
     trim_speed = 10  # m/s
     task = HoverTask(dt=dt)
-    env = Helicopter3DOF(task=task, t_max=120, dt=dt)
+    env = Helicopter3DOF(task=task, t_max=240, dt=dt)
     agent = HDP3.HDPAgentNumpySplit(discount_factor=0.6,
-                          learning_rate=0.05,
+                          learning_rate=0.1,
                           run_number=1,
                           weights_std=0.2,
-                          n_hidden=8,
+                          n_hidden=6,
                           n_inputs_critic=7,
                           action_scaling=np.deg2rad(2))
 
     rewards, weights, info, stats = agent.train(env=env,
-                                                anneal_learning_rate=True,
-                                                annealing_rate=0.9999,
+                                                anneal_learning_rate=False,
+                                                annealing_rate=0.99995,
                                                 trim_speed=trim_speed,
                                                 plotstats=False,
                                                 n_updates=1)
