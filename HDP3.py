@@ -220,7 +220,7 @@ class HDPAgentNumpySplit:
                  learning_rate=0.1,
                  run_number=0,
                  action_scaling=np.deg2rad(15),
-                 weights_std=0.1,
+                 weights_std=0.2,
                  n_hidden=6,
                  n_inputs_critic=6,
                  inputs_actor=(5,)):  # x, z, u, w, pitch, q, lambdai
@@ -309,17 +309,24 @@ class HDPAgentNumpySplit:
             q_err = env.task.get_ref() - observation[5]
             s_aug = np.append(observation[None, [self.inputs_actor]], q_err)[None, :]
 
-            cyclic, hidden_cyc = _actor(s_aug, scale=self.action_scaling)
+            cyclic, hidden_cyc = _actor(s_aug)
             # action = [collective, cyclic]
             h_ref = 25
+            if env.t < 80:
+                h_ref = 25
+            elif 80 <= env.t < 160:
+                self.learning_rate = 0
+                h_ref = 50
+            else:
+                env.task.A = 2
+
 
             h = -observation[1]
             hdot_ref = 0.1 * (h_ref - h)
             hdot = (observation[2] * np.sin(observation[4]) - observation[3] * np.cos(observation[4]))
-            collective = np.deg2rad(trim_actions[0] + 2 * (hdot_ref - hdot) + 0.3 * hdot_corr)
+            collective = np.deg2rad(5 + 2 * (hdot_ref - hdot) + 0.2 * hdot_corr)
 
             action = [collective, cyclic]
-
             # 2. Obtain value estimate for current state
             # value, hidden_v = _critic(observation)
 

@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from collections import namedtuple
 from matplotlib import pyplot as plt
+from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.ticker
 import seaborn as sns
 import os
@@ -62,6 +63,36 @@ def plot_value_function(V, title="Value Function"):
 
     plot_surface(X, Y, Z_noace, "{} (No Usable Ace)".format(title))
     plot_surface(X, Y, Z_ace, "{} (Usable Ace)".format(title))
+
+
+def plot_policy_function(agent, x_range, y_range, title="Policy function"):
+    """
+    Plots the policy as a surface plot.
+    """
+
+    X, Y = np.meshgrid(x_range, y_range)
+    sns.set()
+    # Find value for all (x, y) coordinates
+    Z = np.apply_along_axis(lambda a: agent.action(np.array([a[0], a[1]])), 2, np.dstack([X, Y]))
+    # Z_noace = np.apply_along_axis(lambda _: V[(_[0], _[1], False)], 2, np.dstack([X, Y]))
+    # Z_ace = np.apply_along_axis(lambda _: V[(_[0], _[1], True)], 2, np.dstack([X, Y]))
+
+    def plot_surface(X, Y, Z, title):
+        fig = plt.figure(figsize=(20, 10))
+        ax = fig.add_subplot(111, projection='3d')
+        surf = ax.plot_surface(np.rad2deg(X), np.rad2deg(Y), np.rad2deg(Z), rstride=1, cstride=1,
+                               cmap=matplotlib.cm.coolwarm, vmin=-15.0, vmax=15.0)
+        ax.set_xlabel('q [deg/s]')
+        ax.set_ylabel('q_err [deg/s]')
+        ax.set_zlabel('Cyclic pitch [deg]')
+        ax.set_title(title)
+        ax.view_init(ax.elev, -120)
+        fig.colorbar(surf)
+        plt.show()
+
+    plot_surface(X, Y, Z, "{}".format(title))
+    return Z
+
 
 def plot_Q_function(Q, env, title="Policy"):
     """

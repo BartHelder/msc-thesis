@@ -40,22 +40,23 @@ class TFCritic(tf.keras.Model):
 class HDPAgentTF:
 
     def __init__(self,
-                 discount_factor=0.95,
-                 learning_rate_actor=0.1,
-                 learning_rate_critic=0.1,
+                 gamma=0.6,
+                 lr_actor=0.1,
+                 lr_critic=0.1,
                  run_number=0,
                  action_scaling=np.deg2rad(15),
-                 n_hidden=6):
+                 n_hidden=6,
+                 ):
         self.actor = TFActor(n_hidden=n_hidden, action_scaling=action_scaling)
         self.critic = TFCritic(n_hidden=n_hidden)
-        self.optimizer_actor = ko.Adam(lr=learning_rate_actor)
-        self.optimizer_critic = ko.Adam(lr=learning_rate_critic)
-        self.gamma = discount_factor
+        self.optimizer_actor = ko.Adam(lr=lr_actor)
+        self.optimizer_critic = ko.Adam(lr=lr_critic)
+        self.gamma = gamma
         self.action_scaling = action_scaling
         self.info = {'run_number': run_number,
                      'n_hidden': n_hidden,
-                     'lr_actor': learning_rate_actor,
-                     'lr_critic': learning_rate_critic}
+                     'lr_actor': lr_actor,
+                     'lr_critic': lr_critic}
 
     @tf.function
     def train(self,
@@ -81,7 +82,7 @@ class HDPAgentTF:
 
             # 1. Obtain action from critic network using current knowledge
             with tf.GradientTape() as tape:
-                action = self.actor()
+                action = self.actor(observation)
             action, hidden_action = _actor(observation, scale=self.action_scaling)
 
             # 2. Obtain value estimate for current state

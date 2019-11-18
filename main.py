@@ -5,7 +5,7 @@ import numpy as np
 import multiprocessing as mp
 import itertools
 import json
-from plotting import plot_neural_network_weights_2, plot_stats_3dof
+from plotting import plot_neural_network_weights_2, plot_stats_3dof, plot_policy_function
 from controllers import sarsa
 
 
@@ -66,12 +66,12 @@ if __name__ == "__main__":
     task = HoverTask(dt=dt)
     env = Helicopter3DOF(task=task, t_max=240, dt=dt)
     agent = HDP3.HDPAgentNumpySplit(discount_factor=0.6,
-                          learning_rate=0.1,
-                          run_number=1,
-                          weights_std=0.2,
-                          n_hidden=6,
-                          n_inputs_critic=7,
-                          action_scaling=np.deg2rad(2))
+                                    learning_rate=0.1,
+                                    run_number=1,
+                                    weights_std=0.2,
+                                    n_hidden=6,
+                                    n_inputs_critic=7,
+                                    action_scaling=np.deg2rad(15))
 
     rewards, weights, info, stats = agent.train(env=env,
                                                 anneal_learning_rate=False,
@@ -81,4 +81,10 @@ if __name__ == "__main__":
                                                 n_updates=1)
 
     plot_stats_3dof(stats, info=info)
+
+    #  Plotting
+    x_range = np.deg2rad(np.arange(-5, 5, 0.25))
+    y_range = np.deg2rad(np.arange(-5, 5, 0.25))
+
+    Z = plot_policy_function(agent, x_range, y_range)
     #plot_neural_network_weights_2(weights)

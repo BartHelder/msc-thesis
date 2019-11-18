@@ -1,0 +1,15 @@
+Collective PID:
+KD = 0.1
+
+
+task:
+qref = 1 * np.pi / 180 * np.sin(2 * np.pi * self.t / 40)
+Q = 10^4
+
+main:
+Vtrim = 10m/s
+gamma = 0.5
+lr = 0.2
+sigma_w = 0.2
+n_hidden = 6
+action_scaling = 15 deg
