@@ -5,8 +5,13 @@ import tensorflow.keras.optimizers as ko
 import numpy as np
 import pandas as pd
 from functools import partial
+import time
+from heli_models import Helicopter3DOF
+from tasks import HoverTask
+from plotting import plot_neural_network_weights_2, plot_stats_3dof, plot_policy_function
 
 tf.keras.backend.set_floatx('float64')
+
 
 def scaled_tanh(scale, x):
     return tf.tanh(x) * scale
@@ -41,9 +46,10 @@ class TFCritic(tf.keras.Model):
         x = self.h1(x)
         return self.v(x)
 
+
 class CollectivePID:
 
-    def __init__(self, h_ref=25, dt=0.02, proportional_gain=2, integral_gain=0.2, derivative_gain=0.1):
+    def __init__(self, h_ref=25, dt=0.01, proportional_gain=2, integral_gain=0.2, derivative_gain=0.1):
         self.h_ref = h_ref
         self.hdot_corr = 0
         self.hdot_err = 0
@@ -54,7 +60,7 @@ class CollectivePID:
 
     def __call__(self, obs):
 
-        hdot_ref = self.Kd * (self.h_ref - obs[1])
+        hdot_ref = self.Kd * (self.h_ref - -obs[1])
         hdot = (obs[2] * np.sin(obs[4]) - obs[3] * np.cos(obs[4]))
         self.hdot_err = (hdot_ref - hdot)
         collective = np.deg2rad(5 + self.Kp * self.hdot_err + self.Ki * self.hdot_corr)
@@ -91,16 +97,18 @@ class HDPAgentTF:
                      'n_hidden': n_hidden,
                      'lr_actor': lr_actor,
                      'lr_critic': lr_critic}
+        self.loss_object = kls.MeanSquaredError()
 
-    @tf.function
     def train(self,
               env,
               trim_speed,
               plotstats=True,
               n_updates=5,
               anneal_learning_rate=False,
-              annealing_rate=0.9994):
+              annealing_rate=0.9994,
+              print_runtime=True):
 
+        t1 = time.time()
         # training loop: collect samples, send to optimizer, repeat updates times
         episode_rewards = [0.0]
 
@@ -154,13 +162,13 @@ class HDPAgentTF:
 
             # TODO: track weight stats
 
-            #  Weights only change slowly, so we can afford not to store 767496743 numbers
-            if (step+1) % 10 == 0:
-                weight_stats['t'].append(env.task.t)
-                weight_stats['wci'].append(wci.ravel().copy())
-                weight_stats['wco'].append(wco.ravel().copy())
-                weight_stats['wai'].append(wai.ravel().copy())
-                weight_stats['wao'].append(wao.ravel().copy())
+            # #  Weights only change slowly, so we can afford not to store 767496743 numbers
+            # if (step+1) % 10 == 0:
+            #     weight_stats['t'].append(env.task.t)
+            #     weight_stats['wci'].append(wci.ravel().copy())
+            #     weight_stats['wco'].append(wco.ravel().copy())
+            #     weight_stats['wai'].append(wai.ravel().copy())
+            #     weight_stats['wao'].append(wao.ravel().copy())
 
             # # Anneal learning rate (optional)
             # if anneal_learning_rate and self.learning_rate > 0.01:
@@ -171,16 +179,17 @@ class HDPAgentTF:
         #  Performance statistics
         episode_stats = pd.DataFrame(stats)
         episode_reward = episode_stats.r.sum()
-        weights = {'wci': pd.DataFrame(data=weight_stats['wci'], index=weight_stats['t']),
-                   'wco': pd.DataFrame(data=weight_stats['wco'], index=weight_stats['t']),
-                   'wai': pd.DataFrame(data=weight_stats['wai'], index=weight_stats['t']),
-                   'wao': pd.DataFrame(data=weight_stats['wao'], index=weight_stats['t'])}
+        # weights = {'wci': pd.DataFrame(data=weight_stats['wci'], index=weight_stats['t']),
+        #            'wco': pd.DataFrame(data=weight_stats['wco'], index=weight_stats['t']),
+        #            'wai': pd.DataFrame(data=weight_stats['wai'], index=weight_stats['t']),
+        #            'wao': pd.DataFrame(data=weight_stats['wao'], index=weight_stats['t'])}
         #print("Cumulative reward episode:#" + str(self.run_number), episode_reward)
         #  Neural network weights over time, saving only every 10th timestep because the system only evolves slowly
         # if plotstats:
         #     plot_stats(episode_stats, info=info, show_u=True)
-
-        return episode_reward, weights, info, episode_stats
+        if print_runtime:
+            print(time.time() - t1)
+        return episode_reward, episode_stats,
 
     @tf.function
     def update_networks(self, td_target, s_aug, ds_da, n_updates=2):
@@ -189,7 +198,7 @@ class HDPAgentTF:
             with tf.GradientTape(persistent=True) as tape:
                 tape.watch(s_aug)
                 value = self.critic(s_aug)
-                value_loss = loss_object(td_target, value)
+                value_loss = self.loss_object(td_target, value)
                 cyclic = self.actor(s_aug)
             # Critic gradients is the derivative of MSE between td-target and value
             gradient_critic = tape.gradient(value_loss, self.critic.trainable_variables)
@@ -197,18 +206,23 @@ class HDPAgentTF:
 
             # Actor gradient through the critic and environment model: dEa/dwa = V * dV/ds * ds/da * da/dwa
             dV_ds = tape.gradient(value, s_aug)
-            da_dwa = tape.gradient(cyclic, actor.trainable_variables)
+            da_dwa = tape.gradient(cyclic, self.actor.trainable_variables)
             scale = tf.squeeze(tf.multiply(value, tf.matmul(dV_ds, ds_da)))
             gradient_actor = [tf.multiply(scale, x) for x in da_dwa]
-            self.optimizer_actor.apply_gradients(zip(gradient_actor, actor.trainable_variables))
+            self.optimizer_actor.apply_gradients(zip(gradient_actor, self.actor.trainable_variables))
 
 
 if __name__ == "__main__":
-    actor = TFActor(n_hidden=6, action_scaling=1)
-    loss_object = kls.MeanSquaredError()
-    state = np.array([1, 2, 3, 4, 5])
-    with tf.GradientTape() as tape:
-        a = actor(state[None, :])
+    dt = 0.01  # s
+    trim_speed = 10  # m/s
+    task = HoverTask(dt=dt)
+    env = Helicopter3DOF(task=task, t_max=120, dt=dt)
+    col = CollectivePID(dt=dt, h_ref=25)
 
-    gradients = tape.gradient(a, actor.trainable_variables)
+    agent = HDPAgentTF(collective_controller=col,
+                       gamma=0.6,
+                       lr_actor=0.1,
+                       lr_critic=0.1)
+    reward, episode_stats = agent.train(env, trim_speed=trim_speed, n_updates=1, print_runtime=True)
+    plot_stats_3dof(episode_stats, info=agent.info)
 
