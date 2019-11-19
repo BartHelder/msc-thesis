@@ -278,8 +278,6 @@ class HDPAgentNumpySplit:
         # Initialize environment and tracking task
         observation, trim_actions = env.reset(v_initial=trim_speed)
         hdot_corr = 0
-        hdot_ref = 0
-        hdot = 0
         stats = []
         weight_stats = {'t': [0],
                         'wci': [wci.ravel().copy()],
