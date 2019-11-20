@@ -73,7 +73,7 @@ def plot_policy_function(agent, x_range, y_range, title="Policy function"):
     X, Y = np.meshgrid(x_range, y_range)
     sns.set()
     # Find value for all (x, y) coordinates
-    Z = np.apply_along_axis(lambda a: agent.action(np.array([a[0], a[1]])), 2, np.dstack([X, Y]))
+    Z = np.apply_along_axis(lambda a: agent.actor(np.array([[a[0], a[1]]])).numpy().squeeze(), 2, np.dstack([X, Y]))
     # Z_noace = np.apply_along_axis(lambda _: V[(_[0], _[1], False)], 2, np.dstack([X, Y]))
     # Z_ace = np.apply_along_axis(lambda _: V[(_[0], _[1], True)], 2, np.dstack([X, Y]))
 

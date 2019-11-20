@@ -45,3 +45,4 @@ class HoverTask(Task):
     def get_ref(self):
         return self.A * np.pi / 180 * np.sin(2 * np.pi * self.t / 40)
 
+    # TODO: Create one location where the states are selected for both the task and the ACD
