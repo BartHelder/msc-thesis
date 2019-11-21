@@ -34,15 +34,23 @@ class SimpleTrackingTask(Task):
     def get_ref(self):
         return self.amplitude * np.sin(2 * np.pi * self.t / self.period)
 
+
 class HoverTask(Task):
 
-    def __init__(self, dt, amp=1):
+    def __init__(self,
+                 dt,
+                 tracked_states=(5,),
+                 state_weights=(100,),
+                 period=40,
+                 amp=1):
         super().__init__(dt)
-        self.selected_states = np.array([[0, 0, 0, 0, 0, 1, 0]])
-        self.state_weights = np.diag([10000])
+        self.selected_states = tracked_states
+        self.P = np.eye(7)[tracked_states, :]
+        self.state_weights = np.diag(state_weights)
+        self.period = period
         self.A = amp
 
     def get_ref(self):
-        return self.A * np.pi / 180 * np.sin(2 * np.pi * self.t / 40)
+        return self.A * np.pi / 180 * np.sin(2 * np.pi * self.t / self.period)
 
     # TODO: Create one location where the states are selected for both the task and the ACD

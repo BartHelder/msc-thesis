@@ -197,7 +197,7 @@ class Helicopter3DOF:
         u += u_dot * self.dt
         w += w_dot * self.dt
         pitch += pitch_dot * self.dt
-        #pitch = np.arctan2(np.sin(pitch), np.cos(pitch))  # Get value clipped between +-180 deg
+        pitch = np.arctan2(np.sin(pitch), np.cos(pitch))  # Get value clipped between +-180 deg
         q += q_dot * self.dt
         lambda_i += lambda_i_dot * self.dt
 
@@ -242,7 +242,6 @@ class Helicopter3DOF:
 
         return self.state, trimmed_controls
 
-
     def _trim(self, v_trim: Union[float, int] = 3):
         """
         Trim the helicopter at a certain initial velocity, sets the state correctly and returns controls required to
@@ -282,10 +281,10 @@ class Helicopter3DOF:
 
     def _get_reward(self, goal_state, actual_state) -> float:
 
-        P = self.task.selected_states
+        P = self.task.P
         Q = self.task.state_weights
 
-        error = (P @ actual_state - goal_state)
+        error = (np.matmul(P, actual_state) - goal_state)
 
         reward = -(error.T @ Q @ error).squeeze()
 
@@ -333,42 +332,3 @@ if __name__ == "__main__":
     #
     # plt.plot(t_axis, x_history)
     # plt.show()
-
-# for i=1:aantal
-#
-# # Collective:
-# hwens = 25
-# c = u * np.sin(pitch) - w * np.cos(pitch)
-# h = -z
-# cwens = .1 * (hwens - h)
-# collectgrd = 5 + 2 * (cwens - c) + 0.2 * corrc
-# collect = collectgrd * pi / 180
-#
-# # Cyclic pitch:
-# if t < 90
-#     % law
-#     1
-#     for helic.pitch
-#         uwens = 50
-#     pitchwens = -.005 * (uwens - u) - .0005 * corr % in rad
-#     xeind = x
-#     pitcheind = pitchwens
-# else
-#     % law
-#     2
-#     for helic.pitch
-#         xxeind = xeind(900)
-#     pitcheeind = pitcheind(900)
-#     pitchwens = -.001 * (xxeind + 2000 - x) + .02 * u % in rad
-#     if pitchwens < pitcheeind
-#         pitchwens = pitcheeind % in rad
-#     end
-# end
-# longitgrd = (.2 * (pitch - pitchwens) + .8 * q) * 180 / pi % in deg
-# if longitgrd > 10
-#     longitgrd = 10
-# end
-# if longitgrd < -10
-#     longitgrd = -10
-# end
-# longit = longitgrd * pi / 180 % in rad

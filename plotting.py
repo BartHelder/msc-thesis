@@ -1,4 +1,4 @@
-import matplotlib
+import matplotlib as mpl
 import numpy as np
 import pandas as pd
 from collections import namedtuple
@@ -22,7 +22,7 @@ def plot_cost_to_go_mountain_car(env, estimator, num_tiles=20):
     fig = plt.figure(figsize=(10, 5))
     ax = fig.add_subplot(111, projection='3d')
     surf = ax.plot_surface(X, Y, Z, rstride=1, cstride=1,
-                           cmap=matplotlib.cm.coolwarm, vmin=-1.0, vmax=1.0)
+                           cmap=mpl.cm.coolwarm, vmin=-1.0, vmax=1.0)
     ax.set_xlabel('Position')
     ax.set_ylabel('Velocity')
     ax.set_zlabel('Value')
@@ -73,17 +73,17 @@ def plot_policy_function(agent, x_range, y_range, title="Policy function"):
     X, Y = np.meshgrid(x_range, y_range)
     sns.set()
     # Find value for all (x, y) coordinates
-    Z = np.apply_along_axis(lambda a: agent.actor(np.array([[a[0], a[1]]])).numpy().squeeze(), 2, np.dstack([X, Y]))
+    Z = np.apply_along_axis(lambda a: agent.actor(np.array([[a[0], 0, a[1]]])).numpy().squeeze(), 2, np.dstack([X, Y]))
     # Z_noace = np.apply_along_axis(lambda _: V[(_[0], _[1], False)], 2, np.dstack([X, Y]))
     # Z_ace = np.apply_along_axis(lambda _: V[(_[0], _[1], True)], 2, np.dstack([X, Y]))
 
     def plot_surface(X, Y, Z, title):
-        fig = plt.figure(figsize=(20, 10))
+        fig = plt.figure(figsize=(16, 8))
         ax = fig.add_subplot(111, projection='3d')
         surf = ax.plot_surface(np.rad2deg(X), np.rad2deg(Y), np.rad2deg(Z), rstride=1, cstride=1,
-                               cmap=matplotlib.cm.coolwarm, vmin=-15.0, vmax=15.0)
-        ax.set_xlabel('q [deg/s]')
-        ax.set_ylabel('q_err [deg/s]')
+                               cmap=matplotlib.cm.coolwarm)
+        ax.set_xlabel('Tracked state')
+        ax.set_ylabel('Tracking error')
         ax.set_zlabel('Cyclic pitch [deg]')
         ax.set_title(title)
         ax.view_init(ax.elev, -120)
@@ -193,18 +193,18 @@ def plot_stats_3dof(df: pd.DataFrame, info):
     plt.show()
 
     plt.figure(figsize=FIGSIZE)
-    plt.plot(df['t'], df['q'] * 180 / np.pi, label='q [deg/s]')
-    plt.plot(df['t'], df['qref'] * 180 / np.pi, '--', label='qref [deg/s]')
+    plt.plot(df['t'], df['theta'] * 180 / np.pi, label='theta [deg]')
+    plt.plot(df['t'], df['reference'] * 180 / np.pi, '--', label='theta_ref [deg]')
     #
     plt.xlabel('Time [s]')
-    plt.ylabel('Pitch rate [deg/s]')
+    plt.ylabel('Pitch angle [deg]')
     plt.legend()
     plt.show()
 
     plt.figure(figsize=FIGSIZE)
     plt.plot(df['t'], df['u'], label='u')
     plt.plot(df['t'], df['w'], label='w')
-    plt.plot(df['t'], df['theta'] * 180 / np.pi, label='theta [deg]')
+    plt.plot(df['t'], df['q'] * 180 / np.pi, label='q [deg/s]')
     plt.ylabel('Body velocities [m/s]')
     plt.xlabel('Time [s]')
     plt.legend()
