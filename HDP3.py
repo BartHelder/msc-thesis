@@ -304,7 +304,7 @@ class HDPAgentNumpySplit:
                 weight_stats['wao'].append(wao.ravel().copy())
 
             # 1. Obtain action from actor network using current knowledge
-            q_err = env.task.get_ref() - observation[5]
+            q_err = env.task.get_ref - observation[5]
             s_aug = np.append(observation[None, [self.inputs_actor]], q_err)[None, :]
 
             cyclic, hidden_cyc = _actor(s_aug)
@@ -330,7 +330,7 @@ class HDPAgentNumpySplit:
 
             # 3. Perform action, obtain next state and reward info
             next_observation, reward, done = env.step(action)
-            next_q_err = env.task.get_ref() - next_observation[5]
+            next_q_err = env.task.get_ref - next_observation[5]
             next_aug = np.append(next_observation[None, [self.inputs_actor]], next_q_err)[None, :]
 
             # TD target remains fixed per time-step to avoid oscillations
@@ -389,7 +389,7 @@ class HDPAgentNumpySplit:
                           'w': observation[3],
                           'theta': observation[4],
                           'q': observation[5],
-                          'qref': env.task.get_ref(),
+                          'qref': env.task.get_ref,
                           'collective': action[0],
                           'cyclic': action[1],
                           'r': reward})

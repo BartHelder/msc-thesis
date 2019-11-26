@@ -10,25 +10,7 @@ import os
 import json
 
 EpisodeStats = namedtuple("Stats",["episode_lengths", "episode_rewards"])
-FIGSIZE = (10, 6)
-
-
-def plot_cost_to_go_mountain_car(env, estimator, num_tiles=20):
-    x = np.linspace(env.observation_space.low[0], env.observation_space.high[0], num=num_tiles)
-    y = np.linspace(env.observation_space.low[1], env.observation_space.high[1], num=num_tiles)
-    X, Y = np.meshgrid(x, y)
-    Z = np.apply_along_axis(lambda _: -np.max(estimator.predict(_)), 2, np.dstack([X, Y]))
-
-    fig = plt.figure(figsize=(10, 5))
-    ax = fig.add_subplot(111, projection='3d')
-    surf = ax.plot_surface(X, Y, Z, rstride=1, cstride=1,
-                           cmap=mpl.cm.coolwarm, vmin=-1.0, vmax=1.0)
-    ax.set_xlabel('Position')
-    ax.set_ylabel('Velocity')
-    ax.set_zlabel('Value')
-    ax.set_title("Mountain \"Cost To Go\" Function")
-    fig.colorbar(surf)
-    plt.show()
+FIGSIZE = (8, 6)
 
 
 def plot_value_function(V, title="Value Function"):
@@ -74,14 +56,12 @@ def plot_policy_function(agent, x_range, y_range, title="Policy function"):
     sns.set()
     # Find value for all (x, y) coordinates
     Z = np.apply_along_axis(lambda a: agent.actor(np.array([[a[0], 0, a[1]]])).numpy().squeeze(), 2, np.dstack([X, Y]))
-    # Z_noace = np.apply_along_axis(lambda _: V[(_[0], _[1], False)], 2, np.dstack([X, Y]))
-    # Z_ace = np.apply_along_axis(lambda _: V[(_[0], _[1], True)], 2, np.dstack([X, Y]))
 
     def plot_surface(X, Y, Z, title):
         fig = plt.figure(figsize=(16, 8))
         ax = fig.add_subplot(111, projection='3d')
         surf = ax.plot_surface(np.rad2deg(X), np.rad2deg(Y), np.rad2deg(Z), rstride=1, cstride=1,
-                               cmap=matplotlib.cm.coolwarm)
+                               cmap=matplotlib.cm.coolwarm, vmin=-15, vmax=15)
         ax.set_xlabel('Tracked state')
         ax.set_ylabel('Tracking error')
         ax.set_zlabel('Cyclic pitch [deg]')
@@ -92,20 +72,6 @@ def plot_policy_function(agent, x_range, y_range, title="Policy function"):
 
     plot_surface(X, Y, Z, "{}".format(title))
     return Z
-
-
-def plot_Q_function(Q, env, title="Policy"):
-    """
-    Plots the resulting policy of a Q-function for a grid-based environment
-    """
-    P = np.zeros(env.nS)
-    for key in Q:
-        P[key] = np.argmax(Q[key])
-    P.reshape(env.shape)
-
-    def plot_surface(P, title):
-        fig = plt.figure(figsize=(20,10))
-
 
 def plot_episode_stats(stats, smoothing_window=10, noshow=False):
     # Plot the episode length over time
@@ -177,57 +143,59 @@ def plot_stats_1dof(df: pd.DataFrame, info, show_u=False):
     plt.legend()
     plt.show()
 
-def plot_stats_3dof(df: pd.DataFrame, info):
+def plot_stats_3dof(df: pd.DataFrame, info, results_only=False):
 
     #title = get_title(info)
 
     #  Tracking performance plot
     sns.set()
 
-    plt.figure(figsize=FIGSIZE)
-    plt.plot(df['t'], df['collective'] * 180/np.pi, 'b--', label='collective')
-    plt.plot(df['t'], df['cyclic'] * 180/np.pi, 'r--', label='cyclic')
-    plt.xlabel('Time [s]')
-    plt.ylabel('Control deflection [deg]')
-    plt.legend()
-    plt.show()
+
 
     plt.figure(figsize=FIGSIZE)
     plt.plot(df['t'], df['theta'] * 180 / np.pi, label='theta [deg]')
     plt.plot(df['t'], df['reference'] * 180 / np.pi, '--', label='theta_ref [deg]')
-    #
     plt.xlabel('Time [s]')
     plt.ylabel('Pitch angle [deg]')
     plt.legend()
     plt.show()
 
-    plt.figure(figsize=FIGSIZE)
-    plt.plot(df['t'], df['u'], label='u')
-    plt.plot(df['t'], df['w'], label='w')
-    plt.plot(df['t'], df['q'] * 180 / np.pi, label='q [deg/s]')
-    plt.ylabel('Body velocities [m/s]')
-    plt.xlabel('Time [s]')
-    plt.legend()
-    plt.show()
+    if not results_only:
+        plt.figure(figsize=FIGSIZE)
+        plt.plot(df['t'], df['collective'] * 180/np.pi, 'b--', label='collective')
+        plt.plot(df['t'], df['cyclic'] * 180/np.pi, 'r--', label='cyclic')
+        plt.xlabel('Time [s]')
+        plt.ylabel('Control deflection [deg]')
+        plt.legend()
+        plt.show()
+
+        plt.figure(figsize=FIGSIZE)
+        plt.plot(df['t'], df['u'], label='u')
+        plt.plot(df['t'], df['w'], label='w')
+        plt.plot(df['t'], df['q'] * 180 / np.pi, label='q [deg/s]')
+        plt.ylabel('Body velocities [m/s]')
+        plt.xlabel('Time [s]')
+        plt.legend()
+        plt.show()
 
 
-    plt.figure(figsize=FIGSIZE)
-    #plt.plot(df['t'], df['x'], label='x [m]')
-    plt.plot(df['t'], -df['z'], label='h [m]')
-    plt.plot(df['t'], np.ones_like(df['t']) * 27, 'r--')
-    plt.plot(df['t'], np.ones_like(df['t']) * 23, 'r--')
-    plt.xlabel('Time [s]')
-    plt.ylabel("Height [m]")
-    plt.legend()
-    plt.show()
+        plt.figure(figsize=FIGSIZE)
+        #plt.plot(df['t'], df['x'], label='x [m]')
+        plt.plot(df['t'], -df['z'], label='h [m]')
+        plt.plot(df['t'], np.ones_like(df['t']) * 27, 'r--')
+        plt.plot(df['t'], np.ones_like(df['t']) * 23, 'r--')
+        plt.xlabel('Time [s]')
+        plt.ylabel("Height [m]")
+        plt.legend()
+        plt.show()
 
-    plt.figure(figsize=FIGSIZE)
-    plt.plot(df['t'], df['r'], label='reward')
-    plt.ylabel('Reward [-]')
-    plt.xlabel('Time [s]')
+        plt.figure(figsize=FIGSIZE)
+        plt.plot(df['t'], df['r'], label='reward')
+        plt.ylabel('Reward [-]')
+        plt.xlabel('Time [s]')
 
-    plt.legend()
-    plt.show()
+        plt.legend()
+        plt.show()
 
 
 def plot_neural_network_weights(data, info):

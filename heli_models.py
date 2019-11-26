@@ -7,7 +7,6 @@ import matplotlib.pyplot as plt
 from gym import spaces
 from typing import Union
 from gym.utils import seeding
-from tasks import SimpleTrackingTask, HoverTask
 
 
 class Helicopter1DOF:
@@ -116,8 +115,7 @@ class Helicopter1DOF:
 
 class Helicopter3DOF:
 
-    def __init__(self, task, dt=0.01, t_max=120):
-        self.task = task
+    def __init__(self, dt=0.01, t_max=120):
         self.dt = dt
         self.max_episode_length = t_max
         self.episode_ticks = self.max_episode_length / self.dt
@@ -141,6 +139,8 @@ class Helicopter3DOF:
         self.state = np.array([0, 0, 0, 0, 0, 0, 0])
         self.t = 0.0
 
+        self.task = {'period': 30, 'amp': 20, }
+        self.corr_u = 0
         self.stats = {}
 
     def step(self, actions, virtual=False, **kwargs):
@@ -156,7 +156,7 @@ class Helicopter3DOF:
         :return:
         """
 
-        ref = self.task.step()
+        ref = self.get_ref()
 
         collective, cyclic_pitch = actions
         x, z, u, w, pitch, q, lambda_i = self.state
@@ -202,15 +202,14 @@ class Helicopter3DOF:
         lambda_i += lambda_i_dot * self.dt
 
         state = np.array([x, z, u, w, pitch, q, lambda_i])
+        reward = self._get_reward(goal_state=ref, actual_state=state)
 
-        if True:
-            reward = self._get_reward(goal_state=ref, actual_state=state)
-        else:
-            reward = 0
         # Save results:
         if not virtual:
             self.t += self.dt
             self.state = state
+        else:
+            reward = 0
 
         # If the pitch angle gets too extreme, end the simulation
         done = False
@@ -218,6 +217,20 @@ class Helicopter3DOF:
             done = True
 
         return state, reward, done
+
+    def get_ref(self):
+
+        t = self.t + self.dt
+        T = self.task['period']
+
+        if self.t < 120:
+            return self.task['amp']/2 * np.pi / 180 * (np.sin(2*np.pi*t / T) + np.sin(np.pi*t / T))
+
+        else:
+            u_err = -self.state[2]
+            pitch_ref = np.deg2rad(-0.75 * u_err - 0.001 * self.corr_u)
+            self.corr_u += u_err * self.dt
+            return pitch_ref
 
     def get_environment_transition_function(self, h=0.001):
         """
@@ -281,20 +294,21 @@ class Helicopter3DOF:
 
     def _get_reward(self, goal_state, actual_state) -> float:
 
-        P = self.task.P
-        Q = self.task.state_weights
+        P = np.eye(7)[(4,), :]
+        Q = np.diag((100,))
 
         error = (np.matmul(P, actual_state) - goal_state)
 
         reward = -(error.T @ Q @ error).squeeze()
 
-        return reward
+        reward_clipped = np.clip(reward, -5.0, 0.0)
+
+        return reward_clipped
 
 
 if __name__ == "__main__":
     dt = 0.02
-    task = HoverTask(dt=dt)
-    env = Helicopter3DOF(dt=dt, task=task)
+    env = Helicopter3DOF(dt=dt)
     env.reset(v_initial=3)
 
     sns.set()

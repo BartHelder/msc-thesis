@@ -8,7 +8,6 @@ from functools import partial
 import time
 
 from heli_models import Helicopter3DOF
-from tasks import HoverTask
 from plotting import plot_neural_network_weights_2, plot_stats_3dof, plot_policy_function
 
 tf.keras.backend.set_floatx('float64')
@@ -82,14 +81,17 @@ class HDPAgentTF:
                  run_number=0,
                  action_scaling=np.deg2rad(15),
                  n_hidden=6,
+                 nesterov=True
                  ):
 
         self.collective_controller = collective_controller
         initializer = tf.initializers.TruncatedNormal(mean=0.0, stddev=weights_stddev)
+        self.lr_actor = lr_actor
+        self.lr_critic = lr_critic
         self.actor = TFActor(n_hidden=n_hidden, action_scaling=action_scaling, initializer=initializer)
         self.critic = TFCritic(n_hidden=n_hidden, initializer=initializer)
-        self.optimizer_actor = ko.SGD(lr=lr_actor)
-        self.optimizer_critic = ko.SGD(lr=lr_critic)
+        self.optimizer_actor = ko.SGD(lr=self.lr_actor, nesterov=nesterov, momentum=0.0)
+        self.optimizer_critic = ko.SGD(lr=self.lr_critic, nesterov=nesterov, momentum=0.0)
         self.gamma = gamma
         self.action_scaling = action_scaling
         self.info = {'run_number': run_number,
@@ -102,17 +104,16 @@ class HDPAgentTF:
     def train(self,
               env,
               trim_speed,
-              plotstats=True,
+              stop_training_time,
               n_updates=5,
-              anneal_learning_rate=False,
-              annealing_rate=0.9994,
-              print_runtime=True):
+              print_runtime=True,
+              ):
 
         t1 = time.time()
 
         # This is a property of the environment
         ds_da = tf.constant(env.get_environment_transition_function()[(4, 5, 7), 1].reshape(3, 1))
-        actor_critic_states = env.task.selected_states
+        #actor_critic_states = env.task.selected_states
         # Initialize environment and tracking task
         observation, trim_actions = env.reset(v_initial=trim_speed)
         stats = []
@@ -124,11 +125,14 @@ class HDPAgentTF:
 
         # Repeat (for each step t of an episode)
         for step in range(int(env.episode_ticks)):
-            if env.t > 120 and self.update_networks_flag is True:
-                self.update_networks_flag = False
+            # if env.t > stop_training_time and self.update_networks_flag is True:
+            #     self.update_networks_flag = False
+            if stop_training_time < env.t < stop_training_time+env.dt:
+                self.optimizer_critic._set_hyper('learning_rate', 0.05)
+                self.optimizer_actor._set_hyper('learning_rate', 0.1)
 
             # 1. Obtain action from critic network using current knowledge
-            tracking_error = env.task.get_ref() - observation[4]
+            tracking_error = env.get_ref() - observation[4]
             #  TODO: make a generic function to augment the state
             s_aug = tf.constant([[observation[4], observation[5], tracking_error]])
 
@@ -138,7 +142,7 @@ class HDPAgentTF:
 
             # # 3. Perform action, obtain next state and reward info
             next_observation, reward, done = env.step(action)
-            next_tracking_error = env.task.get_ref() - next_observation[4]
+            next_tracking_error = env.get_ref() - next_observation[4]
             next_aug = tf.constant([[next_observation[4], next_observation[5], next_tracking_error]])
 
             # TD target remains fixed per time-step to avoid oscillations
@@ -156,7 +160,7 @@ class HDPAgentTF:
                           'w': observation[3],
                           'theta': observation[4],
                           'q': observation[5],
-                          'reference': env.task.get_ref(),
+                          'reference': env.get_ref(),
                           'collective': action[0],
                           'cyclic': action[1],
                           'r': reward})
@@ -167,18 +171,15 @@ class HDPAgentTF:
 
             #  Weights only change slowly, so we can afford not to store 767496743 numbers
             if self.update_networks_flag and (step % 10 == 0):
-                weight_stats['t'].append(env.task.t)
+                weight_stats['t'].append(env.t)
                 weight_stats['wci'].append(agent.critic.trainable_weights[0].numpy().ravel().copy())
                 weight_stats['wco'].append(agent.critic.trainable_weights[1].numpy().ravel().copy())
                 weight_stats['wai'].append(agent.actor.trainable_weights[0].numpy().ravel().copy())
                 weight_stats['wao'].append(agent.actor.trainable_weights[1].numpy().ravel().copy())
 
-            # # Anneal learning rate (optional)
-            # if anneal_learning_rate and self.learning_rate > 0.01:
-            #     self.learning_rate *= annealing_rate
-
             if done:
                 break
+
         #  Performance statistics
         episode_stats = pd.DataFrame(stats)
         episode_reward = episode_stats.r.sum()
@@ -219,18 +220,27 @@ class HDPAgentTF:
 
 if __name__ == "__main__":
 
-    tf.random.set_seed(2)
     dt = 0.01  # s
     trim_speed = 10  # m/s
     tracked_states = [4, 5]
     state_weights = [100, 0]
-    task = HoverTask(dt=dt, tracked_states=tracked_states, state_weights=state_weights, period=20, amp=20)
-    env = Helicopter3DOF(task=task, t_max=120, dt=dt)
+    seed = 24
+    tf.random.set_seed(seed)
+    env = Helicopter3DOF(t_max=240, dt=dt)
     col = CollectivePID(dt=dt, h_ref=25, derivative_gain=0.2)
-    agent = HDPAgentTF(collective_controller=col, gamma=0.5, lr_actor=0.01, lr_critic=0.01)
+    agent = HDPAgentTF(collective_controller=col, gamma=0.4, weights_stddev=0.04, lr_actor=0.1, lr_critic=0.05, n_hidden=6, nesterov=False)
+    reward, episode_stats, weights = agent.train(env, stop_training_time=120, trim_speed=trim_speed, n_updates=1, print_runtime=True)
+    plot_stats_3dof(episode_stats, info=agent.info, results_only=False)
 
-    reward, episode_stats, weights = agent.train(env, trim_speed=trim_speed, n_updates=1, print_runtime=True)
-    plot_stats_3dof(episode_stats, info=agent.info)
+    # for episode in range(20, 41, 1):
+    #     tf.random.set_seed(episode)
+    #     task = HoverTask(dt=dt, tracked_states=tracked_states, state_weights=state_weights, period=20, amp=20)
+    #     env = Helicopter3DOF(task=task, t_max=120, dt=dt)
+    #     col = CollectivePID(dt=dt, h_ref=10, derivative_gain=0.2)
+    #     agent = HDPAgentTF(collective_controller=col, gamma=0.5, lr_actor=0.02, lr_critic=0.02)
+    #     reward, episode_stats, weights = agent.train(env, trim_speed=trim_speed, n_updates=1, print_runtime=True)
+    #     plot_stats_3dof(episode_stats, info=agent.info, results_only=True)
+
     #plot_neural_network_weights_2(weights)
     # q_range = np.deg2rad(np.arange(-5, 5, 0.25))
     # qerr_range = np.deg2rad(np.arange(-2, 2, 0.1))
