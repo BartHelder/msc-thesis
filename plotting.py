@@ -143,60 +143,81 @@ def plot_stats_1dof(df: pd.DataFrame, info, show_u=False):
     plt.legend()
     plt.show()
 
-def plot_stats_3dof(df: pd.DataFrame, info, results_only=False):
+def plot_stats_3dof(df: pd.DataFrame, info, results_only=False, color_palette=None):
 
-    #title = get_title(info)
+    sns.set(context='paper')
+    if color_palette is None:
+        cp = sns.color_palette()
+    else:
+        cp = sns.color_palette(color_palette)
 
-    #  Tracking performance plot
-    sns.set()
+    refs = np.stack(df['reference'])
 
+    fig1 = plt.figure(figsize=(6, 6))
 
-
-    plt.figure(figsize=FIGSIZE)
-    plt.plot(df['t'], df['theta'] * 180 / np.pi, label='theta [deg]')
-    plt.plot(df['t'], df['reference'] * 180 / np.pi, '--', label='theta_ref [deg]')
-    plt.xlabel('Time [s]')
+    ax = fig1.add_subplot(311)
+    ax.plot(df['t'], np.rad2deg(refs[:, 4]), c=cp[3], ls='--')
+    ax.plot(df['t'], df['theta'] * 180 / np.pi, c=cp[0])
+    ax.set_xticklabels([])
     plt.ylabel('Pitch angle [deg]')
+    ax = fig1.add_subplot(312)
+    ax.plot(df['t'], refs[:, 1], c=cp[3], ls='--', label='reference')
+    ax.plot(df['t'], -df['z'], c=cp[0])
+    plt.ylabel('h [m]')
     plt.legend()
+    ax.set_xticklabels([])
+    ax = fig1.add_subplot(313)
+    ax.plot(df['t'], df['r'], c=cp[0])
+    plt.ylabel('Reward [-]')
+    plt.xlabel('Time [s]')
+
     plt.show()
 
     if not results_only:
-        plt.figure(figsize=FIGSIZE)
-        plt.plot(df['t'], df['collective'] * 180/np.pi, 'b--', label='collective')
-        plt.plot(df['t'], df['cyclic'] * 180/np.pi, 'r--', label='cyclic')
+        fig2 = plt.figure(figsize=(6, 4))
+        ax = fig2.add_subplot(211)
+        ax.plot(df['t'], df['collective'] * 180 / np.pi, c=cp[0], label='collective')
+        plt.ylabel('Collective [deg]')
+        ax.set_xticklabels([])
+        ax = fig2.add_subplot(212)
+        ax.plot(df['t'], df['cyclic'] * 180 / np.pi, c=cp[0], label='cyclic')
         plt.xlabel('Time [s]')
-        plt.ylabel('Control deflection [deg]')
-        plt.legend()
+        plt.ylabel('Cyclic pitch [deg]')
         plt.show()
 
-        plt.figure(figsize=FIGSIZE)
-        plt.plot(df['t'], df['u'], label='u')
-        plt.plot(df['t'], df['w'], label='w')
-        plt.plot(df['t'], df['q'] * 180 / np.pi, label='q [deg/s]')
-        plt.ylabel('Body velocities [m/s]')
-        plt.xlabel('Time [s]')
-        plt.legend()
-        plt.show()
-
-
-        plt.figure(figsize=FIGSIZE)
-        #plt.plot(df['t'], df['x'], label='x [m]')
-        plt.plot(df['t'], -df['z'], label='h [m]')
-        plt.plot(df['t'], np.ones_like(df['t']) * 27, 'r--')
-        plt.plot(df['t'], np.ones_like(df['t']) * 23, 'r--')
-        plt.xlabel('Time [s]')
-        plt.ylabel("Height [m]")
-        plt.legend()
-        plt.show()
-
-        plt.figure(figsize=FIGSIZE)
-        plt.plot(df['t'], df['r'], label='reward')
-        plt.ylabel('Reward [-]')
+        fig3 = plt.figure(figsize=(6, 10))
+        ax = fig3.add_subplot(511)
+        ax.plot(df['t'], refs[:, 0], c=cp[3], ls='--', label='reference')
+        ax.plot(df['t'], df['x'], c=cp[0])
+        plt.ylabel('x [m]')
         plt.xlabel('Time [s]')
 
-        plt.legend()
-        plt.show()
+        ax = fig3.add_subplot(512)
+        ax.plot(df['t'], refs[:, 1], c=cp[3], ls='--', label='reference')
+        ax.plot(df['t'], -df['z'], c=cp[0])
+        plt.ylabel('h [m]')
+        ax.set_xticklabels([])
 
+        ax = fig3.add_subplot(513)
+        ax.plot(df['t'], refs[:, 2], c=cp[3], ls='--', label='reference')
+        ax.plot(df['t'], df['u'], c=cp[0], label='state')
+        plt.ylabel('u [m/s]')
+        plt.legend()
+        ax.set_xticklabels([])
+
+        ax = fig3.add_subplot(514)
+        ax.plot(df['t'], refs[:, 3], c=cp[3], ls='--', label='reference')
+        ax.plot(df['t'], df['w'], c=cp[0])
+        plt.ylabel('w [m/s]')
+        ax.set_xticklabels([])
+
+        ax = fig3.add_subplot(515)
+        ax.plot(df['t'], np.rad2deg(refs[:, 5]), c=cp[3], ls='--', label='reference')
+        ax.plot(df['t'], df['q'] * 180 / np.pi, c=cp[0])
+        plt.ylabel('q [deg/s]')
+        ax.set_xticklabels([])
+
+        plt.show()
 
 def plot_neural_network_weights(data, info):
 

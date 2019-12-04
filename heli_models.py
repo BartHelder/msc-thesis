@@ -4,6 +4,7 @@ import itertools
 from collections import defaultdict
 import seaborn as sns
 import matplotlib.pyplot as plt
+import json
 from gym import spaces
 from typing import Union
 from gym.utils import seeding
@@ -137,11 +138,14 @@ class Helicopter3DOF:
         self.tau = 0.1
         # self.state = np.array([x, z, u, w, pitch_fuselage, q, lambda_i])
         self.state = np.array([0, 0, 0, 0, 0, 0, 0])
-        self.t = 0.0
-
-        self.task = {'period': 30, 'amp': 20, }
+        self.trimmed_state = np.array([0, 0, 0, 0, 0, 0, 0])
+        self.task = 'sinusoid'
         self.corr_u = 0
+        self.pid_weights = tuple()
+        self.ref = None
         self.stats = {}
+
+        self.t = 0.0
 
     def step(self, actions, virtual=False, **kwargs):
         """
@@ -208,8 +212,6 @@ class Helicopter3DOF:
         if not virtual:
             self.t += self.dt
             self.state = state
-        else:
-            reward = 0
 
         # If the pitch angle gets too extreme, end the simulation
         done = False
@@ -221,16 +223,34 @@ class Helicopter3DOF:
     def get_ref(self):
 
         t = self.t + self.dt
-        T = self.task['period']
+        Kp, Ki, Kd = self.pid_weights
+        h_ref = 0
 
-        if self.t < 120:
-            return self.task['amp']/2 * np.pi / 180 * (np.sin(2*np.pi*t / T) + np.sin(np.pi*t / T))
+        if self.task is None:
+            return 0
+
+        elif self.task == 'sinusoid':
+            x = np.pi*t / 30
+            pitch_ref = np.deg2rad(20/1.76 * (np.sin(x) + np.sin(2*x)))
+            state_ref = np.array([np.nan, h_ref, np.nan, np.nan, pitch_ref, np.nan, np.nan])
+
+        elif self.task == 'velocity':
+            u_err = self.ref - self.state[2]
+            pitch_ref = np.deg2rad(Kp * u_err + Ki * self.corr_u)
+            self.corr_u += u_err * self.dt
+            state_ref = np.array([np.nan, h_ref, self.ref, np.nan, pitch_ref, np.nan, np.nan])
+
+        elif self.task == 'stop_over_point':
+            x_err = self.ref - self.state[0]
+            pitch_ref = np.deg2rad(Kp * x_err + Ki * 0 + Kd * self.state[2])
+            # do not accelerate further than trimmed setting if the target is very far away
+            #pitch_ref = max(pitch_ref, self.trimmed_state[4])
+            state_ref = np.array([self.ref, h_ref, np.nan, np.nan, pitch_ref, np.nan, np.nan])
 
         else:
-            u_err = -self.state[2]
-            pitch_ref = np.deg2rad(-0.75 * u_err - 0.001 * self.corr_u)
-            self.corr_u += u_err * self.dt
-            return pitch_ref
+            raise NotImplementedError("Task type unknown!")
+
+        return state_ref
 
     def get_environment_transition_function(self, h=0.001):
         """
@@ -246,6 +266,18 @@ class Helicopter3DOF:
         x2 = np.append(ds_da2, -ds_da2[5])
 
         return np.array([x1, x2]).T
+
+    def setup_from_config(self, task, config_path):
+        with open(config_path, 'r') as f:
+            config = json.load(f)
+        self.task = task
+        self._set_pid_weights(config)
+        self.reset(v_initial=config["training"]["trim_speed"])
+
+    def _set_pid_weights(self, config):
+        params = config["env"]["tasks"][self.task]
+        self.pid_weights = (params["kp"], params["ki"], params["kd"])
+        self.ref = params["ref"]
 
     def reset(self, v_initial=0.5):
 
@@ -289,28 +321,29 @@ class Helicopter3DOF:
         cyclic, collective = np.linalg.solve(coef_matrix, b_mat)
 
         trimmed_state = np.array([0, 0, u, w, theta_f, 0, lambda_i])
-
+        self.trimmed_state = trimmed_state
         return np.array([collective[0], cyclic[0]]), trimmed_state
 
-    def _get_reward(self, goal_state, actual_state) -> float:
+    def _get_reward(self, goal_state, actual_state, clip_reward=True, clip_value=-5.0):
 
-        P = np.eye(7)[(4,), :]
-        Q = np.diag((100,))
+        if self.task is None:
+            return 0
 
-        error = (np.matmul(P, actual_state) - goal_state)
+        P = np.eye(len(goal_state))[~np.isnan(goal_state)]
+        Q = P @ np.diag([0, 0.05, 0, 0, 100, 0, 0]) @ P.T
+
+        error = np.matmul(P, (actual_state - np.nan_to_num(goal_state)))
 
         reward = -(error.T @ Q @ error).squeeze()
+        if clip_reward:
+            reward = np.clip(reward, clip_value, 0.0)
 
-        reward_clipped = np.clip(reward, -5.0, 0.0)
+        return reward
 
-        return reward_clipped
-
-
-if __name__ == "__main__":
+def plot_trim_settings():
     dt = 0.02
     env = Helicopter3DOF(dt=dt)
-    env.reset(v_initial=3)
-
+    env.reset(v_initial=0)
     sns.set()
     trim_speeds = np.arange(0, 101, 0.1)
     trim_settings = list(map(lambda v: np.rad2deg(env._trim(v_trim=v)[0]), trim_speeds))
@@ -320,29 +353,10 @@ if __name__ == "__main__":
     plt.legend(['collective', 'cyclic'])
     plt.show()
 
-    # collective, cyclic = env.trim(v_trim=10)
-    # t = 0
-    # t_max = 40
-    # step = 1
-    # state_history = [env.state]
-    # while step < (t_max / env.dt):
-    #
-    #     if 0.5 <= t <= 1.0:
-    #         cyclic = np.deg2rad(1.0)
-    #     else:
-    #         cyclic = 0
-    #     actions = [np.deg2rad(6), cyclic]
-    #     state, _, _ = env.step(actions)
-    #     state_history.append(state)
-    #
-    #     step += 1
-    #     t += env.dt
-    #
-    #
-    # sh = pd.DataFrame(state_history)
-    #
-    # t_axis = np.arange(0, t_max, env.dt)
-    # x_history = [x[0] for x in state_history]
-    #
-    # plt.plot(t_axis, x_history)
-    # plt.show()
+
+if __name__ == "__main__":
+    dt = 0.02
+    env = Helicopter3DOF(dt=dt)
+    env.reset(v_initial=0)
+
+    plot_trim_settings()

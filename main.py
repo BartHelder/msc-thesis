@@ -10,6 +10,7 @@ from controllers import sarsa
 
 
 def do_one_trial(env,
+                 agent,
                  learning_rate,
                  weights_std,
                  path="tmp.json",
@@ -21,7 +22,7 @@ def do_one_trial(env,
     ep_rewards = []
     ep_weights = []
     for j in range(1, n_episodes+1):
-        agent = HDPAgentNumpy(learning_rate=learning_rate, run_number=j, weights_std=weights_std)
+        agent = agent(learning_rate=learning_rate, run_number=j, weights_std=weights_std)
         rewards, weights, info = agent.train(env, plotstats=plot_stats, n_updates=5)
         ep_rewards.append(rewards)
 
@@ -61,26 +62,7 @@ def multiprocess_tasks(env, learning_rates, sigmas, n_episodes=100, n_cores=4):
 
 if __name__ == "__main__":
 
-    dt = 0.01  # s
-    trim_speed = 10  # m/s
-    task = HoverTask(dt=dt)
-    env = Helicopter3DOF(task=task, t_max=240, dt=dt)
-    agent = HDP3.HDPAgentNumpySplit(discount_factor=0.6,
-                                    learning_rate=0.1,
-                                    run_number=1,
-                                    weights_std=0.2,
-                                    n_hidden=6,
-                                    n_inputs_critic=7,
-                                    action_scaling=np.deg2rad(15))
 
-    rewards, weights, info, stats = agent.train(env=env,
-                                                anneal_learning_rate=False,
-                                                annealing_rate=0.99995,
-                                                trim_speed=trim_speed,
-                                                plotstats=False,
-                                                n_updates=1)
-
-    plot_stats_3dof(stats, info=info)
 
     #  Plotting
     x_range = np.deg2rad(np.arange(-5, 5, 0.25))
