@@ -316,7 +316,7 @@ def train_save_pitch(seed, save_path, config_path="config.json"):
 if __name__ == "__main__":
 
     dt = 0.02  # s
-    #tf.random.set_seed()
+    tf.random.set_seed(666)
 
     cfp = "config.json"
 

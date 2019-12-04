@@ -161,7 +161,7 @@ def plot_stats_3dof(df: pd.DataFrame, info, results_only=False, color_palette=No
     ax.set_xticklabels([])
     plt.ylabel('Pitch angle [deg]')
     ax = fig1.add_subplot(312)
-    ax.plot(df['t'], refs[:, 1], c=cp[3], ls='--', label='reference')
+    ax.plot(df['t'], -refs[:, 1], c=cp[3], ls='--', label='reference')
     ax.plot(df['t'], -df['z'], c=cp[0])
     plt.ylabel('h [m]')
     plt.legend()
@@ -193,7 +193,7 @@ def plot_stats_3dof(df: pd.DataFrame, info, results_only=False, color_palette=No
         plt.xlabel('Time [s]')
 
         ax = fig3.add_subplot(512)
-        ax.plot(df['t'], refs[:, 1], c=cp[3], ls='--', label='reference')
+        ax.plot(df['t'], -refs[:, 1], c=cp[3], ls='--', label='reference')
         ax.plot(df['t'], -df['z'], c=cp[0])
         plt.ylabel('h [m]')
         ax.set_xticklabels([])
