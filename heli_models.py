@@ -206,10 +206,11 @@ class Helicopter3DOF:
         lambda_i += lambda_i_dot * self.dt
 
         state = np.array([x, z, u, w, pitch, q, lambda_i])
-        reward = self._get_reward(goal_state=ref, actual_state=state)
+        reward = 0
 
         # Save results:
         if not virtual:
+            reward = self._get_reward(goal_state=ref, actual_state=state)
             self.t += self.dt
             self.state = state
 
@@ -221,10 +222,14 @@ class Helicopter3DOF:
         return state, reward, done
 
     def get_ref(self):
-
         t = self.t + self.dt
         Kp, Ki, Kd = self.pid_weights
-        h_ref = 0 if self.t < 40 else -30
+        if self.t < 40:
+            h_ref = 0
+        elif 40 <= self.t < 60:
+            h_ref = max((self.t - 40), 0)
+        else:
+            h_ref = 20
 
         if self.task is None:
             return 0
@@ -245,7 +250,7 @@ class Helicopter3DOF:
             x_err = self.ref - self.state[0]
             pitch_ref = np.deg2rad(Kp * x_err + Ki * 0 + Kd * self.state[2])
             # do not accelerate further than trimmed setting if the target is very far away
-            #pitch_ref = max(pitch_ref, self.trimmed_state[4])
+            pitch_ref = max(pitch_ref, self.trimmed_state[4])
             state_ref = np.array([self.ref, h_ref, np.nan, np.nan, pitch_ref, np.nan, np.nan])
 
         else:
@@ -266,7 +271,7 @@ class Helicopter3DOF:
         x1 = np.append(ds_da1, -ds_da1[5])
         x2 = np.append(ds_da2, -ds_da2[5])
 
-        return np.array([x1, x2]).T
+        return np.array([[x1, x2]]).T
 
     def setup_from_config(self, task, config_path):
         with open(config_path, 'r') as f:
@@ -310,7 +315,7 @@ class Helicopter3DOF:
         # Solving for non-dimensional induced velocity (lambda_i)
         # by equating thrust coefficient above to that found via Glauert's method
         mu = v_trim / self.v_tip  # assuming small angles
-        lp = [4, 8 * mu * np.sin(drag / weight), 4 * mu ** 2, 0,
+        lp = [4, 8 * mu * np.sin(drag / weight), 4 * mu **2, 0,
               -c_t ** 2]  # polynomial coefficients, highest order first
         r = np.roots(lp)  # four roots, only one of which is real & positive
         lambda_i = np.real(r[(np.real(r) > 0) & (np.imag(r) == 0)][0])

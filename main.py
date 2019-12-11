@@ -1,13 +1,12 @@
-from heli_models import Helicopter1DOF, Helicopter3DOF
-from tasks import SimpleTrackingTask, HoverTask
-import HDP3
 import numpy as np
+import tensorflow as tf
 import multiprocessing as mp
 import itertools
 import json
-from plotting import plot_neural_network_weights_2, plot_stats_3dof, plot_policy_function
-from controllers import sarsa
 
+from heli_models import Helicopter1DOF, Helicopter3DOF
+from plotting import plot_neural_network_weights_2, plot_stats_3dof, plot_policy_function
+from HDP_tf import Agent
 
 def do_one_trial(env,
                  agent,
@@ -62,11 +61,65 @@ def multiprocess_tasks(env, learning_rates, sigmas, n_episodes=100, n_cores=4):
 
 if __name__ == "__main__":
 
+    dt = 0.02  # s
+    tf.random.set_seed(666)
+    stop_training_time = 120
+    cfp = "config.json"
 
+    env = Helicopter3DOF(t_max=stop_training_time, dt=dt)
+    env.setup_from_config(task="stop_over_point", config_path=cfp)
 
-    #  Plotting
-    x_range = np.deg2rad(np.arange(-5, 5, 0.25))
-    y_range = np.deg2rad(np.arange(-5, 5, 0.25))
+    CollectiveAgent = Agent(cfp, control_channel="collective")
+    CollectiveAgent.set_ds_da(env)
+    CyclicAgent = Agent(cfp, control_channel="cyclic")
+    CyclicAgent.set_ds_da(env)
 
-    Z = plot_policy_function(agent, x_range, y_range)
-    #plot_neural_network_weights_2(weights)
+    agents = (CollectiveAgent, CyclicAgent)
+    observation, trim_actions = env.reset(v_initial=30)
+    stats = []
+    reward = []
+    weight_stats = {'t': [], 'wci': [], 'wco': [], 'wai': [], 'wao': []}
+
+    for step in range(int(env.episode_ticks)):
+
+        # Get new reference
+        reference = env.get_ref()
+
+        # Augment state with tracking errors
+        augmented_states = (CollectiveAgent.augment_state(observation, reference),
+                            CyclicAgent.augment_state(observation, reference))
+
+        # Get actions from actors
+        actions = (CollectiveAgent.actor(augmented_states[0]),
+                   CyclicAgent.actor(augmented_states[1]))
+
+        # Take step in the environment
+        next_observation, _, done = env.step(actions)
+
+        # Get rewards, update actor and critic networks
+        for agent, count in zip(agents, itertools.count()):
+            reward[count] = agent.get_reward(next_observation, reference)
+            next_augmented_state = agent.augment_state(next_observation, reference)
+            td_target = reward[count] + agent.gamma * agent.critic(next_augmented_state)
+            agent.update_networks(td_target, augmented_states[count], n_updates=1)
+
+        # Log data
+        stats.append({'t': env.t,
+                      'x': observation[0],
+                      'z': observation[1],
+                      'u': observation[2],
+                      'w': observation[3],
+                      'theta': observation[4],
+                      'q': observation[5],
+                      'reference': env.get_ref(),
+                      'collective': actions[0],
+                      'cyclic': actions[1],
+                      'r1': reward[0],
+                      'r2': reward[1]})
+
+        if done or env.t > stop_training_time:
+            break
+
+        # Next step..
+        observation = next_observation
+

@@ -15,14 +15,6 @@ from plotting import plot_neural_network_weights_2, plot_stats_3dof, plot_policy
 
 tf.keras.backend.set_floatx('float64')
 
-COLLECTIVE_STATES = (3,)
-COLLECTIVE_TRACKED_STATE = (1,)
-
-CYCLIC_STATES = (4, 5)
-CYCLIC_TRACKED_STATE = (4,)
-
-
-
 def scaled_tanh(scale, x):
     return tf.tanh(x) * scale
 
@@ -47,20 +39,21 @@ class TFActorCyclic(tf.keras.Model):
 
 class TFActorColl(tf.keras.Model):
 
-    def __init__(self, n_hidden, initializer):
+    def __init__(self, n_hidden, initializer, action_scaling):
         super(TFActorColl, self).__init__()
+        self.action_scaling = action_scaling
         self.h1 = kl.Dense(n_hidden,
                            activation='tanh',
                            use_bias=False,
                            kernel_initializer=initializer)
         self.a = kl.Dense(1,
-                          activation=partial(scaled_tanh, np.deg2rad(5)),
+                          activation=partial(scaled_tanh, np.deg2rad(action_scaling)),
                           kernel_initializer=initializer,
                           use_bias=False)
 
     def call(self, x):
         x = self.h1(x)
-        return np.deg2rad(5) + self.a(x)
+        return np.deg2rad(self.action_scaling) + self.a(x)
 
 
 class TFCritic(tf.keras.Model):
@@ -122,15 +115,17 @@ class HDPAgentTF:
                                             initializer=initializer)
         self.critic = TFCritic(n_hidden=conf["n_hidden"],
                                initializer=initializer)
-        self.optimizer_actor_cyclic = ko.SGD(lr=self.lr_actor,
-                                             nesterov=bool(conf["use_nesterov_momentum"]),
-                                             momentum=conf["momentum"])
-        self.optimizer_actor_collective = ko.SGD(lr=self.lr_actor,
-                                                 nesterov=bool(conf["use_nesterov_momentum"]),
-                                                 momentum=conf["momentum"])
-        self.optimizer_critic = ko.SGD(lr=self.lr_critic,
-                                       nesterov=bool(conf["use_nesterov_momentum"]),
-                                       momentum=conf["momentum"])
+
+        self.optimizer = ko.SGD(lr=self.lr_actor, nesterov=bool(conf["use_nesterov_momentum"]), momentum=conf["momentum"])
+        # self.optimizer_actor_cyclic = ko.SGD(lr=self.lr_actor,
+        #                                      nesterov=bool(conf["use_nesterov_momentum"]),
+        #                                      momentum=conf["momentum"])
+        # self.optimizer_actor_collective = ko.SGD(lr=self.lr_actor,
+        #                                          nesterov=bool(conf["use_nesterov_momentum"]),
+        #                                          momentum=conf["momentum"])
+        # self.optimizer_critic = ko.SGD(lr=self.lr_critic,
+        #                                nesterov=bool(conf["use_nesterov_momentum"]),
+        #                                momentum=conf["momentum"])
         self.gamma = conf["gamma"]
         self.info = {'run_number': run_number,
                      'n_hidden': conf["n_hidden"],
@@ -171,10 +166,7 @@ class HDPAgentTF:
             else:
                 raise NameError("Invalid control channel name")
 
-
-            augmented_state = [[obs[x] for x in actor_states] + [tracking_error]]
-
-            return tf.constant(augmented_state)
+            return tf.constant([[obs[x] for x in actor_states] + [tracking_error]])
 
         #  Track statistics
         stats = []
@@ -188,10 +180,8 @@ class HDPAgentTF:
             # 1. Obtain action from critic network using current knowledge
             s_aug = augment_state(observation, control_channel="cyclic")
             s_aug_collective = augment_state(observation, control_channel='collective')
-
             collective = self.actor_collective(s_aug_collective).numpy().squeeze()
             cyclic = self.actor_cyclic(s_aug).numpy().squeeze()
-
             action = [collective, cyclic]
 
             # # 3. Perform action, obtain next state and reward info
@@ -222,8 +212,6 @@ class HDPAgentTF:
             self.collective_controller.increment_hdot_error()
             observation = next_observation
 
-            if 100 < env.t < 100.04:
-                print(observation)
             #  Weights only change slowly, so we can afford not to store 767496743 numbers
             if self.update_networks_flag and (step % 10 == 0):
                 weight_stats['t'].append(env.t)
@@ -265,7 +253,7 @@ class HDPAgentTF:
 
             # Critic gradients is the derivative of MSE between td-target and value
             gradient_critic = tape.gradient(value_loss, self.critic.trainable_variables)
-            self.optimizer_critic.apply_gradients(zip(gradient_critic, self.critic.trainable_variables))
+            self.optimizer.apply_gradients(zip(gradient_critic, self.critic.trainable_variables))
 
             # Actor gradient through the critic and environment model: dEa/dwa = V * dV/ds * ds/da * da/dwa
             dV_ds = tape.gradient(value, s_aug2)
@@ -277,7 +265,7 @@ class HDPAgentTF:
             gradient_actor2 = [tf.multiply(scale, x) for x in da2_dwa]
 
             #self.optimizer_actor_cyclic.apply_gradients(zip(gradient_actor1, self.actor_cyclic.trainable_variables))
-            self.optimizer_actor_collective.apply_gradients(zip(gradient_actor2, self.actor_collective.trainable_variables))
+            self.optimizer.apply_gradients(zip(gradient_actor2, self.actor_collective.trainable_variables))
 
     def save(self, path="saved_models/"+datetime.date.today().isoformat()+"/"):
         self.actor_cyclic.save_weights(path + "actor", save_format='tf')
@@ -285,7 +273,114 @@ class HDPAgentTF:
 
     def load(self, path):
         self.actor_cyclic.load_weights(path + "actor")
-        #self.critic.load_weights(path + "critic")
+        self.critic.load_weights(path + "critic")
+
+
+class Agent:
+
+    def __init__(self,
+                 config,
+                 control_channel):
+
+        if control_channel == "cyclic":
+            actor = TFActorCyclic
+        elif control_channel == 'collective':
+            actor = TFActorColl
+        else:
+            raise NotImplementedError("Unknown actor type")
+
+        with open(config, "r") as f:
+            c = json.load(f)
+        conf = c["agent"][control_channel]
+        self.control_channel = control_channel
+        initializer = tf.initializers.TruncatedNormal(mean=0.0, stddev=conf["weights_stddev"])
+        self.actor = actor(n_hidden=conf["n_hidden"],
+                           action_scaling=np.deg2rad(conf["action_scaling"]),
+                           initializer=initializer)
+        self.critic = TFCritic(n_hidden=conf["n_hidden"], initializer=initializer)
+        self.optimizer_actor = ko.SGD(lr=conf["lr_actor"],
+                                nesterov=bool(conf["use_nesterov_momentum"]),
+                                momentum=conf["momentum"])
+        self.optimizer_critic = ko.SGD(lr=conf["lr_critic"],
+                                nesterov=bool(conf["use_nesterov_momentum"]),
+                                momentum=conf["momentum"])
+        self.ds_da = None
+        self.loss_object = kls.MeanSquaredError()
+        self.tracked_state = conf["tracked_state"]
+        self.actor_critic_states = conf["actor_critic_states"]
+        self.reward_weight = conf["reward_weight"]
+        self.gamma = conf["gamma"]
+        self.info = {'n_hidden': conf["n_hidden"],
+                     'gamma': conf["gamma"],
+                     'lr_actor': conf["lr_actor"],
+                     'lr_critic': conf["lr_critic"]}
+
+    def get_action(self, augmented_state):
+        pass
+
+    def augment_state(self, observation, reference):
+
+        tracking_error = reference[self.tracked_state] - observation[self.tracked_state]
+        return tf.constant([[observation[x] for x in self.actor_critic_states] + [tracking_error]])
+
+    def get_reward(self, observation, reference):
+        tracking_error = reference[self.tracked_state] - observation[self.tracked_state]
+        reward = tracking_error**2 * self.reward_weight
+        return reward
+
+    def set_ds_da(self, env):
+        mapping = {'cyclic_lon': 0,
+                   'collective': 1,
+                   'cyclic_lat': 2,
+                   'directional': 3}
+
+        ds_da = env.get_environment_transition_function()[:, mapping[self.control_channel]]
+        state_transition = ds_da[self.actor_critic_states, :]
+        tracking_error = -ds_da[self.tracked_state, :]  # if the state increases, tracking error decreases proportionally
+        dsda = np.append(state_transition, tracking_error, axis=0)
+        self.ds_da = tf.constant(dsda)
+
+        return dsda
+
+    @tf.function
+    def update_networks(self, td_target, s_aug, n_updates=2):
+        """
+        :param x:
+        """
+        for _ in tf.range(tf.constant(n_updates)):
+            with tf.GradientTape(persistent=True) as tape:
+                tape.watch(s_aug)
+                value = self.critic(s_aug)
+                value_loss = self.loss_object(td_target, value)
+                action = self.actor(s_aug)
+
+            # Critic gradients is the derivative of MSE between td-target and value
+            gradient_critic = tape.gradient(value_loss, self.critic.trainable_variables)
+            self.optimizer_critic.apply_gradients(zip(gradient_critic, self.critic.trainable_variables))
+
+            # Actor gradient through the critic and environment model: dEa/dwa = V * dV/ds * ds/da * da/dwa
+            dV_ds = tape.gradient(value, s_aug)
+            scale = tf.squeeze(tf.multiply(value, tf.matmul(dV_ds, self.ds_da)))
+            da_dwa = tape.gradient(action, self.actor.trainable_variables)
+            gradient_actor = [tf.multiply(scale, x) for x in da_dwa]
+            self.optimizer_actor.apply_gradients(zip(gradient_actor, self.actor.trainable_variables))
+
+    def get_weights(self):
+        weight_stats = {'wci': self.critic.trainable_weights[0].numpy().ravel(),
+                        'wco': self.critic.trainable_weights[1].numpy().ravel(),
+                        'wai': self.actor.trainable_weights[0].numpy().ravel(),
+                        'wao': self.actor.trainable_weights[1].numpy().ravel()
+                        }
+
+        return weight_stats
+
+    def save(self, name, folder="saved_models/"+datetime.date.today().isoformat()+"/"):
+        self.actor.save_weights(folder + "actor_" + name, save_format='tf')
+        self.critic.save_weights(folder + "critic_" + name, save_format='tf')
+
+    def load(self, name, folder):
+        self.actor.load_weights(folder + "actor_" + name)
+        self.critic.load_weights(folder + "critic_" + name)
 
 
 def train_save_pitch(seed, save_path, config_path="config.json"):
@@ -294,8 +389,6 @@ def train_save_pitch(seed, save_path, config_path="config.json"):
         config = json.load(f)
 
     dt = config["dt"]  # s
-    tracked_states = [4, 5]
-    state_weights = [100, 0]
     tf.random.set_seed(seed)
 
     col = CollectivePID(dt=dt, h_ref=25, derivative_gain=0.2)
@@ -321,27 +414,7 @@ if __name__ == "__main__":
     cfp = "config.json"
 
     env = Helicopter3DOF(t_max=120, dt=dt)
-    env.setup_from_config(task="sinusoid", config_path=cfp)
+    env.setup_from_config(task="stop_over_point", config_path=cfp)
     col = CollectivePID(dt=dt, h_ref=0, derivative_gain=0.3)
     agent = HDPAgentTF(collective_controller=col, config_path=cfp)
-
-    agent.load("saved_models/2019-11-27/")
-    reward2, episode_stats2, weights2 = agent.train(env, stop_training_time=120, trim_speed=1, n_updates=1, print_runtime=True)
-    plot_stats_3dof(episode_stats2, info=agent.info, results_only=False)
-
-
-    # for episode in range(20, 41, 1):
-    #     tf.random.set_seed(episode)
-    #     task = HoverTask(dt=dt, tracked_states=tracked_states, state_weights=state_weights, period=20, amp=20)
-    #     env = Helicopter3DOF(task=task, t_max=120, dt=dt)
-    #     col = CollectivePID(dt=dt, h_ref=10, derivative_gain=0.2)
-    #     agent = HDPAgentTF(collective_controller=col, gamma=0.5, lr_actor=0.02, lr_critic=0.02)
-    #     reward, episode_stats, weights = agent.train(env, trim_speed=trim_speed, n_updates=1, print_runtime=True)
-    #     plot_stats_3dof(episode_stats, info=agent.info, results_only=True)
-
-    #plot_neural_network_weights_2(weights)
-    # q_range = np.deg2rad(np.arange(-5, 5, 0.25))
-    # qerr_range = np.deg2rad(np.arange(-2, 2, 0.1))
-    #
-    # Z = plot_policy_function(agent, q_range, qerr_range)
 

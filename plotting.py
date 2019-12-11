@@ -47,7 +47,7 @@ def plot_value_function(V, title="Value Function"):
     plot_surface(X, Y, Z_ace, "{} (Usable Ace)".format(title))
 
 
-def plot_policy_function(agent, x_range, y_range, title="Policy function"):
+def plot_policy_function(actor, x_range, y_range,  title="Policy function"):
     """
     Plots the policy as a surface plot.
     """
@@ -55,7 +55,7 @@ def plot_policy_function(agent, x_range, y_range, title="Policy function"):
     X, Y = np.meshgrid(x_range, y_range)
     sns.set()
     # Find value for all (x, y) coordinates
-    Z = np.apply_along_axis(lambda a: agent.actor(np.array([[a[0], 0, a[1]]])).numpy().squeeze(), 2, np.dstack([X, Y]))
+    Z = np.apply_along_axis(lambda a: actor(np.array([[a[0], a[1]]])).numpy().squeeze(), 2, np.dstack([X, Y]))
 
     def plot_surface(X, Y, Z, title):
         fig = plt.figure(figsize=(16, 8))
