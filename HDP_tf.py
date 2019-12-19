@@ -47,13 +47,13 @@ class TFActorColl(tf.keras.Model):
                            use_bias=False,
                            kernel_initializer=initializer)
         self.a = kl.Dense(1,
-                          activation=partial(scaled_tanh, np.deg2rad(action_scaling)),
+                          activation=partial(scaled_tanh, action_scaling),
                           kernel_initializer=initializer,
                           use_bias=False)
 
     def call(self, x):
         x = self.h1(x)
-        return np.deg2rad(self.action_scaling) + self.a(x)
+        return self.action_scaling + self.a(x)
 
 
 class TFCritic(tf.keras.Model):
@@ -282,7 +282,7 @@ class Agent:
                  config,
                  control_channel):
 
-        if control_channel == "cyclic":
+        if control_channel == "cyclic_lon":
             actor = TFActorCyclic
         elif control_channel == 'collective':
             actor = TFActorColl
@@ -325,7 +325,8 @@ class Agent:
 
     def get_reward(self, observation, reference):
         tracking_error = reference[self.tracked_state] - observation[self.tracked_state]
-        reward = tracking_error**2 * self.reward_weight
+        reward = -tracking_error**2 * self.reward_weight
+        reward = np.clip(reward, -5, 0)
         return reward
 
     def set_ds_da(self, env):
@@ -336,7 +337,7 @@ class Agent:
 
         ds_da = env.get_environment_transition_function()[:, mapping[self.control_channel]]
         state_transition = ds_da[self.actor_critic_states, :]
-        tracking_error = -ds_da[self.tracked_state, :]  # if the state increases, tracking error decreases proportionally
+        tracking_error = -ds_da[self.tracked_state, :].reshape((1, 1))  # if the state increases, tracking error decreases proportionally
         dsda = np.append(state_transition, tracking_error, axis=0)
         self.ds_da = tf.constant(dsda)
 

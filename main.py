@@ -3,6 +3,7 @@ import tensorflow as tf
 import multiprocessing as mp
 import itertools
 import json
+import pandas as pd
 
 from heli_models import Helicopter1DOF, Helicopter3DOF
 from plotting import plot_neural_network_weights_2, plot_stats_3dof, plot_policy_function
@@ -61,26 +62,25 @@ def multiprocess_tasks(env, learning_rates, sigmas, n_episodes=100, n_cores=4):
 
 if __name__ == "__main__":
 
-    dt = 0.02  # s
-    tf.random.set_seed(666)
-    stop_training_time = 120
+    tf.random.set_seed(167)
     cfp = "config.json"
 
-    env = Helicopter3DOF(t_max=stop_training_time, dt=dt)
-    env.setup_from_config(task="stop_over_point", config_path=cfp)
+    env = Helicopter3DOF()
+    env.setup_from_config(task="sinusoid", config_path=cfp)
 
     CollectiveAgent = Agent(cfp, control_channel="collective")
-    CollectiveAgent.set_ds_da(env)
-    CyclicAgent = Agent(cfp, control_channel="cyclic")
-    CyclicAgent.set_ds_da(env)
+    CollectiveAgent.ds_da = tf.constant(np.array([[-0.8], [1.0]]))
+    CyclicAgent = Agent(cfp, control_channel="cyclic_lon")
+    CyclicAgent.ds_da = tf.constant(np.array([[0], [-0.08], [0.08]]))
 
     agents = (CollectiveAgent, CyclicAgent)
-    observation, trim_actions = env.reset(v_initial=30)
+    observation, trim_actions = env.reset(v_initial=20)
     stats = []
-    reward = []
+    reward = [None, None]
     weight_stats = {'t': [], 'wci': [], 'wco': [], 'wai': [], 'wao': []}
 
-    for step in range(int(env.episode_ticks)):
+    done = False
+    while not done:
 
         # Get new reference
         reference = env.get_ref()
@@ -90,8 +90,8 @@ if __name__ == "__main__":
                             CyclicAgent.augment_state(observation, reference))
 
         # Get actions from actors
-        actions = (CollectiveAgent.actor(augmented_states[0]),
-                   CyclicAgent.actor(augmented_states[1]))
+        actions = (CollectiveAgent.actor(augmented_states[0]).numpy().squeeze(),
+                   CyclicAgent.actor(augmented_states[1]).numpy().squeeze())
 
         # Take step in the environment
         next_observation, _, done = env.step(actions)
@@ -102,6 +102,8 @@ if __name__ == "__main__":
             next_augmented_state = agent.augment_state(next_observation, reference)
             td_target = reward[count] + agent.gamma * agent.critic(next_augmented_state)
             agent.update_networks(td_target, augmented_states[count], n_updates=1)
+            if count == 1:
+                break
 
         # Log data
         stats.append({'t': env.t,
@@ -117,9 +119,13 @@ if __name__ == "__main__":
                       'r1': reward[0],
                       'r2': reward[1]})
 
-        if done or env.t > stop_training_time:
-            break
+        if env.t > 280:
+            done = True
 
         # Next step..
         observation = next_observation
+
+    stats = pd.DataFrame(stats)
+    plot_stats_3dof(stats)
+
 

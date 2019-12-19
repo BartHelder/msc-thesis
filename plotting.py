@@ -143,7 +143,7 @@ def plot_stats_1dof(df: pd.DataFrame, info, show_u=False):
     plt.legend()
     plt.show()
 
-def plot_stats_3dof(df: pd.DataFrame, info, results_only=False, color_palette=None):
+def plot_stats_3dof(df: pd.DataFrame, results_only=False, color_palette=None):
 
     sns.set(context='paper')
     if color_palette is None:
@@ -155,19 +155,23 @@ def plot_stats_3dof(df: pd.DataFrame, info, results_only=False, color_palette=No
 
     fig1 = plt.figure(figsize=(6, 6))
 
-    ax = fig1.add_subplot(311)
-    ax.plot(df['t'], np.rad2deg(refs[:, 4]), c=cp[3], ls='--')
-    ax.plot(df['t'], df['theta'] * 180 / np.pi, c=cp[0])
-    ax.set_xticklabels([])
-    plt.ylabel('Pitch angle [deg]')
-    ax = fig1.add_subplot(312)
+    ax = fig1.add_subplot(411)
     ax.plot(df['t'], -refs[:, 1], c=cp[3], ls='--', label='reference')
     ax.plot(df['t'], -df['z'], c=cp[0])
     plt.ylabel('h [m]')
     plt.legend()
     ax.set_xticklabels([])
-    ax = fig1.add_subplot(313)
-    ax.plot(df['t'], df['r'], c=cp[0])
+    ax = fig1.add_subplot(412)
+    ax.plot(df['t'], df['r1'], c=cp[0])
+    plt.ylabel('Reward [-]')
+    ax.set_xticklabels([])
+    ax = fig1.add_subplot(413)
+    ax.plot(df['t'], np.rad2deg(refs[:, 4]), c=cp[3], ls='--')
+    ax.plot(df['t'], df['theta'] * 180 / np.pi, c=cp[0])
+    ax.set_xticklabels([])
+    plt.ylabel('Pitch angle [deg]')
+    ax = fig1.add_subplot(414)
+    ax.plot(df['t'], df['r2'], c=cp[0])
     plt.ylabel('Reward [-]')
     plt.xlabel('Time [s]')
 
@@ -190,7 +194,7 @@ def plot_stats_3dof(df: pd.DataFrame, info, results_only=False, color_palette=No
         ax.plot(df['t'], refs[:, 0], c=cp[3], ls='--', label='reference')
         ax.plot(df['t'], df['x'], c=cp[0])
         plt.ylabel('x [m]')
-        plt.xlabel('Time [s]')
+        ax.set_xticklabels([])
 
         ax = fig3.add_subplot(512)
         ax.plot(df['t'], -refs[:, 1], c=cp[3], ls='--', label='reference')
@@ -215,7 +219,7 @@ def plot_stats_3dof(df: pd.DataFrame, info, results_only=False, color_palette=No
         ax.plot(df['t'], np.rad2deg(refs[:, 5]), c=cp[3], ls='--', label='reference')
         ax.plot(df['t'], df['q'] * 180 / np.pi, c=cp[0])
         plt.ylabel('q [deg/s]')
-        ax.set_xticklabels([])
+        plt.xlabel('Time [s]')
 
         plt.show()
 

@@ -201,7 +201,7 @@ class Helicopter3DOF:
         u += u_dot * self.dt
         w += w_dot * self.dt
         pitch += pitch_dot * self.dt
-        pitch = np.arctan2(np.sin(pitch), np.cos(pitch))  # Get value clipped between +-180 deg
+        #pitch = np.arctan2(np.sin(pitch), np.cos(pitch))  # Get value clipped between +-180 deg
         q += q_dot * self.dt
         lambda_i += lambda_i_dot * self.dt
 
@@ -210,7 +210,7 @@ class Helicopter3DOF:
 
         # Save results:
         if not virtual:
-            reward = self._get_reward(goal_state=ref, actual_state=state)
+            #reward = self._get_reward(goal_state=ref, actual_state=state)
             self.t += self.dt
             self.state = state
 
@@ -224,20 +224,26 @@ class Helicopter3DOF:
     def get_ref(self):
         t = self.t + self.dt
         Kp, Ki, Kd = self.pid_weights
+        # if self.t < 60:
+        #     ref = 10
+        # elif 60 <= self.t < 90:
+        #     ref = max((self.t - 60), 0) * 0.33 + 10
+        # else:
+        #     ref = 20
         if self.t < 40:
-            h_ref = 0
-        elif 40 <= self.t < 60:
-            h_ref = max((self.t - 40), 0)
+            ref = 0
+        elif 40 <= self.t < 120:
+            ref = 20
         else:
-            h_ref = 20
-
+            ref = 30
+        h_ref = 0
         if self.task is None:
             return 0
 
         elif self.task == 'sinusoid':
-            x = np.pi*t / 30
-            pitch_ref = np.deg2rad(5/1.76 * (np.sin(x) + np.sin(2*x)))
-            pitch_ref = 0
+            x = np.pi*t / 40
+            #pitch_ref = np.deg2rad(ref/1.76 * (np.sin(x) + np.sin(2*x)))
+            pitch_ref = np.deg2rad(np.sin(2*x) * ref)
             state_ref = np.array([np.nan, h_ref, np.nan, np.nan, pitch_ref, np.nan, np.nan])
 
         elif self.task == 'velocity':
@@ -277,6 +283,7 @@ class Helicopter3DOF:
         with open(config_path, 'r') as f:
             config = json.load(f)
         self.task = task
+        self.dt = config["dt"]
         self._set_pid_weights(config)
         self.reset(v_initial=config["training"]["trim_speed"])
 
@@ -345,6 +352,116 @@ class Helicopter3DOF:
             reward = np.clip(reward, clip_value, 0.0)
 
         return reward
+
+
+class Helicopter6DOF:
+
+    def __init__(self, dt=0.02):
+        self.g = 9.80665
+        self.R = 287.05
+        self.g = 9.80665  # Gravitational acceleration               [m/s^2]
+        self.R = 287.05  # Specific gas constant of air             [J/kg/K]
+        self.T0 = 288.15  # Sea level temperature in ISA             [K]
+        self.hstrat = 11000  # Altitude at which stratosphere begins    [m]
+        self.rho0 = 1.2250  # Sea level density in ISA                 [kg/m^3]
+        self.lamda = -0.0065  # Standard atmosphere temperature gradient [K/m]
+
+        # General helicopter parameters
+        self.m = 2200  # Helicopter mass   [kg]
+        self.W = self.m * self.g  # Helicopter weight [N]
+
+        self.Ixx = 1433  # Helicopter moment of inertia about x-axis [kg*m^2]
+        self.Iyy = 4973  # Helicopter moment of inertia about y-axis [kg*m^2]
+        self.Izz = 4099  # Helicopter moment of inertia about z-axis [kg*m^2]
+        self.Jxz = 660  # Heli product of inertia about x & z-axis  [kg*m^2]
+
+        self.dxcg = 0  # Displacement of cg along x-axis wrt ref point [m]
+        self.dycg = 0  # Displacement of cg along y-axis wrt ref point [m]
+        self.dzcg = 0  # Displacement of cg along z-axis wrt ref point [m]
+
+        self.xh = 0.08 - self.dxcg  # Hub x-position relative to cg [m]
+        self.yh = 0 - self.dycg  # Hub y-position relative to cg [m]
+        self.zh = 1.48  # Hub z-position relative to cg [m]
+
+        self.Ne = 2  # Number of engines                      [-]
+        self.Pe = 313000  # Installed power per engine             [W]
+        self.etam = 0.95  # Engine mechanical efficiency           [-]
+        self.Kaeo = 0.8643  # Max power for AEO                      [-]
+        self.Paeo = self.Ne * self.Pe * self.etam * self.Kaeo  # All engines operative available power  [W]
+        self.Koei = 0.95  # Max power for OEI                      [-]
+        self.Poei = self.Koei * (self.Ne - 1) * self.Pe * self.etam  # One engine inoperative avaliable power [W]
+        self.Koeitr = 1.10  # Max transient power for OEI            [-]
+        self.Poeitr = self.Koeitr * (self.Ne - 1) * self.Pe * self.etam  # One engine inop  transient avlbl pwr [W]
+        self.Omegareq = 44.4  # Required main rotor speed           [rad/s]
+        self.Keng = -self.Pe * self.etam * self.Kaeo / self.Omegareq / 0.02  # Gain between Omega and Peng [W/rad]
+
+        # Main rotor parameters
+        self.Omegareq = 44.4  # Required main rotor speed       [rad/s]
+        self.R_mr = 4.912  # Main rotor radius               [m]
+        self.c_mr = 0.27  # Main rotor blade chord          [m]
+        self.Nb = 4  # Main rotor number of blades     [-]
+        self.sigma_mr = self.Nb * self.c_mr / (np.pi * self.R_mr)  # Main rotor solidity         [-]
+        self.Cla_mr = 6.113  # Main rotor liftgradient         [1/rad]
+        self.delta0 = 0.0074  # MR profile drag coefficient     [-]
+        self.delta2 = 38.66  # MR lift dependent prfl drag cf  [-]
+        self.gamma_s = 0.0524  # MR shaft forward (pos) tilt     [rad]
+        self.I_beta = 231.7  # Rotor blade flap mom of inertia [kg*m^2]
+        self.twist = -0.14  # Rotor blade twist               [rad]
+        self.e = 0.746  # Flapping hinge offset           [m]
+        self.eps = self.e / self.R_mr  # Rotor blade offset (e/R)        [-]
+        self.m_bl = 27.3  # Rotor blade mass                [kg]
+        self.nu2 = 1.248  # Flap frequency ratio            [-]
+        self.tau_lambda0_mr = 0.1  # Time constant                   [s]
+        self.Kbeta = 113330  # Equivalent spring constant      [N*m/rad]
+        self.gamma = self.rho0 * self.Cla_mr * self.c_mr * self.R_mr ** 4 / self.I_beta  # Lock nr at sea level [-]
+        self.k = 1.15  # (van Holten p30)                [-]
+
+        # Fuselage
+        self.F0 = 1.3 * 0.73  # Parasite drag area of the helicopter    [m^2]
+        self.S_fus = self.F0 / 0.2  # Fuselage surface                        [m^2]
+        self.K_fus = 0.83  # Correction coeff in fus pitching moment [-]
+        self.Vol_fus = np.pi / 4 * 6 * 1.3  # Equivalent volume of circular body      [m^3]
+        self.CDS = 1.2  # Eq. flat plate area (van Holten p52)    [m^2]
+        self.n = 4.65  # (van Holten p51)                        [-]
+
+        # Horizontal stabilizer
+        self.Cla_hs = 4  # Horizontal stabilizer lift gradient       [1/rad]
+        self.alpha0_hs = 0.0698  # Horizontal stabilizer incidence           [rad]
+        self.S_hs = 0.803  # Horizontal stabilizer area                [m^2]
+        self.x_hs = 4.64 - self.dxcg  # Horizontal stabilizer x-positon rel to cg [m]
+        self.K_hs = 1.5  # Horizontal stabilizer downwash factor     [-]
+
+        # Vertical fin
+        self.Cla_fin = 4  # Vertical fin lift gradient             [1/rad]
+        self.S_fin = 0.805  # Vertical fin area                      [m^2]
+        self.beta0_fin = -0.06116  # Vertical fin incidence                 [rad]
+        self.x_fin = 5.30 - self.dxcg  # Vertical fin x-position relative to cg [m]
+        self.z_fin = 0.97  # Vertical fin z-position relative to cg [m]
+
+        # Tail rotor
+        self.R_tr = 0.95  # Tail rotor radius          [m]
+        self.c_tr = 0.18  # Tail rotor blade chord     [m]
+        self.f_tr = 1 - 3 * self.S_fin / (4 * self.R_tr ** 2 * np.pi)  # Tl rtr fin blockage factor [-]
+        self.gT = 5.25  # Tail rotor gearing         [-]
+        self.x_tr = 6.08 - self.dxcg  # Tail rotor x-pos rel to cg [m]
+        self.z_tr = 1.72  # Tail rotor z-pos rel to cg [m]
+        self.Cla_tr = 5.7  # Tail rotor lift gradient   [1/rad]
+        self.Nb_tr = 2  # Tail rotor nr of blades    [-]
+        self.sigma_tr = self.Nb_tr * self.c_tr / (np.pi * self.R_tr)  # Tail rotor solidity        [-]
+        self.k_1_tr = 1  # MR downwash factor at TR   [-]
+        self.tau_lambda0_tr = 0.3  # Time constant              [s]
+        self.M_tr = 0.7  # Tail rotor figure of Merit [-]
+
+        # Control system: from Garteur AG-06
+        self.a1sl = -6  # Lateral cyclic control range left             [deg]
+        self.a1su = 4  # Lateral cyclic control range right            [deg]
+        self.b1sl = 10  # Longitudinal cyclic control range back        [deg]
+        self.b1su = -5.5  # Longitudinal cyclic control range forward     [deg]
+        self.t0l = 2  # Main rotor coll control range at 0.7*R_mr min [deg]
+        self.t0u = 18  # Main rotor coll control range at 0.7*R_mr max [deg]
+        self.t0trl = 18  # Tail rotor control range min                  [deg]
+        self.t0tru = -6  # Tail rotor control range max                  [deg]
+        self.psipmu = -10  # Control phase shift                           [deg]
 
 def plot_trim_settings():
     dt = 0.02
