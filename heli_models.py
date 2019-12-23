@@ -357,24 +357,25 @@ class Helicopter3DOF:
 class Helicopter6DOF:
 
     def __init__(self, dt=0.02):
-        self.g = 9.80665
-        self.R = 287.05
+
+        self.dt = dt
+        self.t = 0
+        self.t_max = 120
         self.g = 9.80665  # Gravitational acceleration               [m/s^2]
         self.R = 287.05  # Specific gas constant of air             [J/kg/K]
         self.T0 = 288.15  # Sea level temperature in ISA             [K]
-        self.hstrat = 11000  # Altitude at which stratosphere begins    [m]
+        self.h_strat = 11000  # Altitude at which stratosphere begins    [m]
         self.rho0 = 1.2250  # Sea level density in ISA                 [kg/m^3]
-        self.lamda = -0.0065  # Standard atmosphere temperature gradient [K/m]
+        self.standard_atmosphere_gradient = -0.0065  # Standard atmosphere temperature gradient [K/m]
 
         # General helicopter parameters
-        self.m = 2200  # Helicopter mass   [kg]
-        self.W = self.m * self.g  # Helicopter weight [N]
-
+        self.mass = 2200  # Helicopter mass   [kg]
+        self.W = self.mass * self.g  # Helicopter weight [N]
         self.Ixx = 1433  # Helicopter moment of inertia about x-axis [kg*m^2]
         self.Iyy = 4973  # Helicopter moment of inertia about y-axis [kg*m^2]
         self.Izz = 4099  # Helicopter moment of inertia about z-axis [kg*m^2]
-        self.Jxz = 660  # Heli product of inertia about x & z-axis  [kg*m^2]
 
+        self.Jxz = 660  # Heli product of inertia about x & z-axis  [kg*m^2]
         self.dxcg = 0  # Displacement of cg along x-axis wrt ref point [m]
         self.dycg = 0  # Displacement of cg along y-axis wrt ref point [m]
         self.dzcg = 0  # Displacement of cg along z-axis wrt ref point [m]
@@ -389,14 +390,13 @@ class Helicopter6DOF:
         self.Kaeo = 0.8643  # Max power for AEO                      [-]
         self.Paeo = self.Ne * self.Pe * self.etam * self.Kaeo  # All engines operative available power  [W]
         self.Koei = 0.95  # Max power for OEI                      [-]
-        self.Poei = self.Koei * (self.Ne - 1) * self.Pe * self.etam  # One engine inoperative avaliable power [W]
+        self.Poei = self.Koei * (self.Ne - 1) * self.Pe * self.etam  # One engine inoperative available power [W]
         self.Koeitr = 1.10  # Max transient power for OEI            [-]
-        self.Poeitr = self.Koeitr * (self.Ne - 1) * self.Pe * self.etam  # One engine inop  transient avlbl pwr [W]
-        self.Omegareq = 44.4  # Required main rotor speed           [rad/s]
-        self.Keng = -self.Pe * self.etam * self.Kaeo / self.Omegareq / 0.02  # Gain between Omega and Peng [W/rad]
+        self.Poeitr = self.Koeitr * (self.Ne - 1) * self.Pe * self.etam  # One engine inoperative transient avlbl pwr[W]
+        self.Keng = -self.Pe * self.etam * self.Kaeo / self.omegareq / 0.02  # Gain between Omega and Peng [W/rad]
 
         # Main rotor parameters
-        self.Omegareq = 44.4  # Required main rotor speed       [rad/s]
+        self.omegareq = 44.4  # Required main rotor speed       [rad/s]
         self.R_mr = 4.912  # Main rotor radius               [m]
         self.c_mr = 0.27  # Main rotor blade chord          [m]
         self.Nb = 4  # Main rotor number of blades     [-]
@@ -453,15 +453,285 @@ class Helicopter6DOF:
         self.M_tr = 0.7  # Tail rotor figure of Merit [-]
 
         # Control system: from Garteur AG-06
-        self.a1sl = -6  # Lateral cyclic control range left             [deg]
-        self.a1su = 4  # Lateral cyclic control range right            [deg]
-        self.b1sl = 10  # Longitudinal cyclic control range back        [deg]
-        self.b1su = -5.5  # Longitudinal cyclic control range forward     [deg]
-        self.t0l = 2  # Main rotor coll control range at 0.7*R_mr min [deg]
-        self.t0u = 18  # Main rotor coll control range at 0.7*R_mr max [deg]
-        self.t0trl = 18  # Tail rotor control range min                  [deg]
-        self.t0tru = -6  # Tail rotor control range max                  [deg]
-        self.psipmu = -10  # Control phase shift                           [deg]
+        self.a1sl = np.deg2rad(-6)  # Lateral cyclic control range left             [deg]
+        self.a1su = np.deg2rad(4)  # Lateral cyclic control range right            [deg]
+        self.b1sl = np.deg2rad(10)  # Longitudinal cyclic control range back        [deg]
+        self.b1su = np.deg2rad(-5.5)  # Longitudinal cyclic control range forward     [deg]
+        self.t0l = np.deg2rad(2)  # Main rotor coll control range at 0.7*R_mr min [deg]
+        self.t0u = np.deg2rad(18)  # Main rotor coll control range at 0.7*R_mr max [deg]
+        self.t0trl = np.deg2rad(18)  # Tail rotor control range min                  [deg]
+        self.t0tru = np.deg2rad(-6)  # Tail rotor control range max                  [deg]
+        self.psipmu = np.deg2rad(-10)  # Control phase shift                           [deg]
+
+        # Variables
+        self.P_available = self.Paeo # available engine power, switches based on engine status
+        self.P_out = 0  # Output of engine integrator dynamics,
+        self.state = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+
+    def step(self, actions, virtual=False):
+
+        state = self.integrate_runge_kutta(self.state, actions)
+        if not virtual:
+            self.state = state
+
+        done = False
+        if self.t > self.t_max:
+            done = True
+        reward = 0
+
+        return state, reward, done
+
+    def set_engine_status(self, n_engines_available=2, transient=False):
+        if n_engines_available == 2:
+            self.P_available = self.Paeo
+        elif n_engines_available == 1 and not transient:
+            self.P_available = self.Poei
+        elif n_engines_available == 1 and transient:
+            self.P_available = self.Poeitr
+        elif n_engines_available == 0:
+            self.P_available = 0
+        else:
+            raise ValueError("Incorrect input for setting the engine status")
+
+    def calculate_state_derivatives(self, actions, state=None):
+
+        coll, long, lat, pedal = actions
+
+        if state is None:
+            u, v, w, p, q, r, phi, theta, psi, x, y, z, lambda0_mr, lambda0_tr, omega = self.state
+        else:
+            u, v, w, p, q, r, phi, theta, psi, x, y, z, lambda0_mr, lambda0_tr, omega = state
+
+        # Converting stick positions to blade angles
+        a1s2 = (self.a1su-self.a1sl)*0.01*lat + self.a1sl
+        b1s2 = (self.b1su-self.b1sl)*0.01*long + self.b1sl
+
+        # Control angles (in radians)
+        theta_0 = (self.t0u-self.t0l)*0.01*coll + self.t0l            # Main rotor collective
+        theta_1s = b1s2*np.cos(self.psipmu) + a1s2*np.sin(self.psipmu)  # Longitudinal cyclic
+        theta_1c = a1s2*np.cos(self.psipmu) + b1s2*np.sin(self.psipmu)  # Lateral cyclic
+        theta_0_tr = (self.t0tru-self.t0trl)*0.01*pedal + self.t0trl  # Tail rotor collective
+
+        # Other variables
+        rho = self.calculate_air_density(-z)  # Air density
+        gamma = rho * self.Cla_mr * self.c_mr * self.R_mr**4 / self.I_beta  # Blade lock number
+        alpha_cp = -np.arctan2(w, u) + theta_1s  # Angle of attack of control plane
+        V = np.sqrt(u**2 + v**2 + w**2)  # Total airspeed
+
+        omega_r = omega * self.R_mr
+        mu_x = V*np.cos(alpha_cp)/omega_r   # Normalized x-velocity
+        mu_z = -V*np.sin(alpha_cp)/omega_r  # Normalized z-velocity
+
+        #######################
+        # Main rotor dynamics #
+        #######################
+        eps = self.e / self.R_mr  # Rotor blade offset (e/R)        [-]
+        den1 = gamma * (0.25*eps**2 - eps/3 + 0.125)
+        den2 = gamma * (mu_x**2 * (eps**2 - 2 * eps + 1) / 16)
+
+        A = np.eye(3)
+        b = np.zeros((3, 1))
+        A[0, 1] = gamma * mu_x * (eps**2 - 2*eps) / (8*self.nu2)
+        A[1, 2] = (1-self.nu2) / (den1 - den2)
+        A[2, 0] = gamma * mu_x * (1/6 - 0.25*eps) / (-den1-den2)
+        A[2, 1] = (1-self.nu2) / (-den1-den2)
+
+        b[0, 0] = (1/2*gamma / 2*self.nu2) * \
+            (theta_0 * ((0.25 - eps/3) + mu_x**2*(0.25*eps**2-1/2*eps+0.25))
+             + mu_x*(1/2*eps-1/3)*theta_1s
+             + (mu_x**2/6 + 0.2 - mu_x**2*eps*0.25 - 0.25*eps)*self.twist
+             - (1/3 - 0.5*eps)*(lambda0_mr-mu_z)
+             + mu_x*(1/6 - 0.25*eps)*p/omega)
+        b[1, 0] = (gamma *
+                (mu_x*(2-3*eps)/6*theta_0
+                 + (mu_x**2*(-3*eps**2+6*eps-3) + 16/6*eps - 2)/16*theta_1s
+                 + mu_x/4*((1 - 4/3*eps)*self.twist - (eps**2-2*eps+1)*(lambda0_mr-mu_z))
+                 + (1-4/3*eps)*p/(8*omega))-2*q/omega) / (den1-den2)
+        b[2, 0] = (gamma*((8/3*eps - 2 + mu_x**2*(-eps**2+2*eps-1))/16*theta_1c + (1-4/3*eps)*q/(8*omega))
+                   + 2*p/omega) / (-den1-den2)
+
+        # Solving Ax=b for x yields the flapping angles
+        a0, a1, b1 = np.linalg.solve(A, b)[:, 0]
+        Ct = (self.Cla_mr*self.sigma_mr/8) * \
+             ((2/3 + mu_x**2) * theta_0 * 2
+              + (2 * theta_1s + p / omega) * mu_x
+              + (mu_z - lambda0_mr) * 2
+              + (1 + mu_x**2) * self.twist)
+
+        Cd = self.delta0 + self.delta2 * Ct**2
+        T_mr = Ct * rho * omega_r**2 * np.pi * self.R_mr**2
+
+        # This appears to be unused?
+        # lambda_d = V * np.sin(alpha_cp - a1) / omega_r + lambda0_mr
+        # Cq = self.sigma_mr * Cd * 0.125 * (1 + 4.7 * mu_x**2) + Ct * lambda_d
+        # Q_mr = Cq * dimless * R_mr
+
+        a1t1s = a1 - theta_1s + self.gamma_s
+        b1t1c = b1 + theta_1c
+
+        # Pitch and roll moment due to eccentricity
+        Le = omega_r**2 * eps * self.m_bl * np.sin(b1t1c)
+        Me = omega_r**2 * eps * self.m_bl * np.sin(a1t1s)
+
+        # Main rotor thrust coefficients: blade element method (bem) and Glauert (gl)
+        Ct_bem_mr = Ct
+        Ct_gl_mr = 2 * lambda0_mr * np.sqrt(mu_x**2 + (lambda0_mr - mu_z)**2)
+
+        #######################
+        # Tail rotor dynamics #
+        #######################
+
+        # Tail rotor tip speed [m/s]
+        omegar_tr = self.gT * omega * self.R_tr
+
+        # Normalized tail rotor velocity along x- and z-axes
+        mu_x_tr = np.sqrt(u**2 + (w + self.k_1_tr*lambda0_mr*omega_r + q*self.x_tr)**2) / omegar_tr
+        mu_z_tr = -(v - self.x_tr*r + self.z_tr*p) / omegar_tr
+
+        # Tail rotor thrust coefficients: blade element method (bem) and Glauert (gl)
+        Ct_bem_tr = self.Cla_tr*self.sigma_tr * (theta_0_tr*(2 + 3*mu_x_tr**2) + 3*mu_z_tr - 6*lambda0_tr) / 12
+        Ct_gl_tr = 2*lambda0_tr*np.sqrt(mu_x_tr**2 + (mu_z_tr-lambda0_tr)**2)
+
+        # Forces and moments caused by the TR:
+        T_tr = Ct_bem_tr * rho * omegar_tr**2 * np.pi * self.R_tr**2
+        Y_tr = T_tr * self.f_tr
+        L_tr = Y_tr * self.z_tr
+        N_tr = -Y_tr * self.x_tr
+
+        ############
+        # Fuselage #
+        ############
+
+        alpha_fus = np.arctan2(w, u)
+        R_fus = 0.5 * rho * V**2 * self.F0
+
+        X_fus = -R_fus * np.cos(alpha_fus)
+        Z_fus = -R_fus * np.sin(alpha_fus)
+        M_fus = rho * V**2 * self.K_fus * self.Vol_fus * alpha_fus
+
+        #########################
+        # Horizontal stabilizer #
+        #########################
+
+        alpha_hs = self.alpha0_hs + np.arctan2((w + q*self.x_hs), u)  # HS incidence[rad]
+        V_hs = np.sqrt(u**2 + (w + q*self.x_hs)**2)  # HS  velocity  [m/s]
+
+        Z_hs = -1 / 2 * rho * V_hs**2 * 0.65 * self.S_hs * self.Cla_hs * alpha_hs
+        M_hs = Z_hs * self.x_hs
+
+        # Vertical fin
+        beta_fin = self.beta0_fin + np.arctan2(v - r*self.x_fin + p*self.z_fin, u)   # VF incidence[rad]
+        V_fin = np.sqrt(u**2 + (v - r*self.x_fin + p*self.z_fin)**2)   # VF  velocity[m / s]
+
+        Y_fin = -rho/2 * V_fin**2 * self.S_fin * self.Cla_fin * beta_fin
+        L_fin = self.z_fin * Y_fin
+        N_fin = -self.x_fin * Y_fin
+
+        # Power calculations
+        P_par = self.CDS * rho * V**3 / 2  # Parasite drag [W]
+        P_i = abs(self.k * T_mr * lambda0_mr * omega_r)  # Induced power [W]
+        PpPd = self.sigma_mr*Cd*rho*omega_r**3*np.pi*self.R_mr**2*(1+self.n*mu_x**2)/8  # Total profile drag power [W]
+        P_c = -w * self.W  # Climb power [W]
+        P_tr = abs(T_tr / self.M_tr * np.sqrt(abs(T_tr / (2*rho*np.pi*self.R_tr**2))))  # Tail rotor power [W]
+        P_req = P_par + P_i + PpPd + P_c + P_tr   # Total power [W]
+
+        tau = 0.3
+        P_eng = self.Keng*(omega-self.omegareq*1.02)
+        P_in = P_eng
+        self.P_out += (P_in - self.P_out) / tau * self.dt
+        P_eng = self.P_out
+
+        if P_eng <= 0:
+            P_eng = 0
+        elif P_eng >= self.P_available:
+            P_eng = self.P_available
+
+        # Summing rotor forces and moments
+        Xmr = -T_mr * np.sin(a1t1s) * np.cos(b1t1c)
+        Ymr = T_mr * np.sin(b1t1c)
+        Zmr = -T_mr * np.cos(a1t1s) * np.cos(b1t1c)
+
+        Lmr = Ymr * self.zh - Zmr * self.yh + Le
+        Mmr = -Xmr * self.zh - Zmr * self.xh + Me
+        Nmr = P_eng / omega + Xmr * self.yh - Ymr * self.xh
+
+        # Equations of motion
+        # Summation of all forces(except weight components)
+        X = Xmr + X_fus
+        Y = Ymr + Y_tr + Y_fin
+        Z = Zmr + Z_fus + Z_hs
+
+        Fx = -self.W * np.sin(theta) + X
+        Fy = self.W * np.cos(theta) * np.sin(phi) + Y
+        Fz = self.W * np.cos(theta) * np.cos(phi) + Z
+
+        # Summation of all moments
+        L = Lmr + L_tr + L_fin
+        M = Mmr + M_fus + M_hs
+        N = Nmr + N_tr + N_fin
+
+        # Accelerations in the body-axes
+        udot = Fx / self.mass - q * w + r * v
+        vdot = Fy / self.mass - r * u + p * w
+        wdot = Fz / self.mass - p * v + q * u
+
+        rdot = (N - (self.Iyy-self.Ixx)*p*q + self.Jxz*((L - (self.Izz-self.Iyy)*q*r + self.Jxz*p*q)/self.Ixx - r*q)) \
+               / (self.Izz - self.Jxz**2/self.Ixx)
+
+        qdot = (M - (self.Ixx-self.Izz)*r*p - self.Jxz*(p**2-r**2)) / self.Iyy
+        pdot = (L - (self.Izz-self.Iyy)*q*r + self.Jxz*(rdot+p*q)) / self.Ixx
+
+        psidot = (q*np.sin(phi) + r*np.cos(phi)) / np.cos(theta)
+        thetadot = q*np.cos(phi) - r*np.sin(phi)
+        phidot = p + psidot*np.sin(theta)
+
+        # Rotor rotational acceleration = Nb*I times 1.1 to include rotating transmission
+        Omegadot = rdot + (P_eng - P_req) / omega / (1.1*self.Nb*self.I_beta)
+
+        # Velocities in Earth-axes
+        xdot = (u*np.cos(theta) + (v*np.sin(phi)+w*np.cos(phi))*np.sin(theta))*np.cos(psi) \
+            - (v*np.cos(phi)-w*np.sin(phi))*np.sin(psi)
+        ydot = (u*np.cos(theta) + (v*np.sin(phi)+w*np.cos(phi))*np.sin(theta))*np.sin(psi) \
+            + (v*np.cos(phi)-w*np.sin(phi))*np.cos(psi)
+        zdot = -u*np.sin(theta) + (v*np.sin(phi)+w*np.cos(phi))*np.cos(theta)
+
+        lambda0_mrdot = (Ct_bem_mr-Ct_gl_mr)/self.tau_lambda0_mr
+        lambda0_trdot = (Ct_bem_tr-Ct_gl_tr)/self.tau_lambda0_tr
+
+        return np.array([udot, vdot, wdot, pdot, qdot, rdot, psidot, thetadot, phidot,
+                        xdot, ydot, zdot, lambda0_mrdot, lambda0_trdot, Omegadot])
+
+    def integrate_runge_kutta(self, old_state, actions):
+
+        f = self.calculate_state_derivatives(actions, old_state)
+        k1 = self.dt * f
+
+        states = old_state + k1/2
+        f = self.calculate_state_derivatives(actions, states)
+        k2 = self.dt * f
+
+        states = old_state + k2/2
+        f = self.calculate_state_derivatives(actions, states)
+        k3 = self.dt * f
+
+        states = old_state + k3
+        f = self.calculate_state_derivatives(actions, states)
+        k4 = self.dt * f
+
+        new_state = old_state + (k1 + 2*k2 + 2*k3 + k4) / 6
+
+        return new_state
+
+
+    @staticmethod
+    def calculate_air_density(altitude):
+        """
+        Calculates the air density at a given altitude.
+        :param altitude:
+        :return:
+        """
+        # density   = rho0*(1+lambda*h/T0)^(-1*(g/(R*lambda)+1))
+        return 1.225 * (1 - 0.0065 * altitude / 288.15)**(-(9.80665 / (287.05 * -0.0065) + 1))
 
 def plot_trim_settings():
     dt = 0.02
