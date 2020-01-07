@@ -8,6 +8,8 @@ import json
 from gym import spaces
 from typing import Union
 from gym.utils import seeding
+from pandas import DataFrame
+from scipy.io import loadmat
 
 
 class Helicopter1DOF:
@@ -384,17 +386,6 @@ class Helicopter6DOF:
         self.yh = 0 - self.dycg  # Hub y-position relative to cg [m]
         self.zh = 1.48  # Hub z-position relative to cg [m]
 
-        self.Ne = 2  # Number of engines                      [-]
-        self.Pe = 313000  # Installed power per engine             [W]
-        self.etam = 0.95  # Engine mechanical efficiency           [-]
-        self.Kaeo = 0.8643  # Max power for AEO                      [-]
-        self.Paeo = self.Ne * self.Pe * self.etam * self.Kaeo  # All engines operative available power  [W]
-        self.Koei = 0.95  # Max power for OEI                      [-]
-        self.Poei = self.Koei * (self.Ne - 1) * self.Pe * self.etam  # One engine inoperative available power [W]
-        self.Koeitr = 1.10  # Max transient power for OEI            [-]
-        self.Poeitr = self.Koeitr * (self.Ne - 1) * self.Pe * self.etam  # One engine inoperative transient avlbl pwr[W]
-        self.Keng = -self.Pe * self.etam * self.Kaeo / self.omegareq / 0.02  # Gain between Omega and Peng [W/rad]
-
         # Main rotor parameters
         self.omegareq = 44.4  # Required main rotor speed       [rad/s]
         self.R_mr = 4.912  # Main rotor radius               [m]
@@ -415,6 +406,18 @@ class Helicopter6DOF:
         self.Kbeta = 113330  # Equivalent spring constant      [N*m/rad]
         self.gamma = self.rho0 * self.Cla_mr * self.c_mr * self.R_mr ** 4 / self.I_beta  # Lock nr at sea level [-]
         self.k = 1.15  # (van Holten p30)                [-]
+
+        # Engine
+        self.Ne = 2  # Number of engines                      [-]
+        self.Pe = 313000  # Installed power per engine             [W]
+        self.etam = 0.95  # Engine mechanical efficiency           [-]
+        self.Kaeo = 0.8643  # Max power for AEO                      [-]
+        self.Paeo = self.Ne * self.Pe * self.etam * self.Kaeo  # All engines operative available power  [W]
+        self.Koei = 0.95  # Max power for OEI                      [-]
+        self.Poei = self.Koei * (self.Ne - 1) * self.Pe * self.etam  # One engine inoperative available power [W]
+        self.Koeitr = 1.10  # Max transient power for OEI            [-]
+        self.Poeitr = self.Koeitr * (self.Ne - 1) * self.Pe * self.etam  # One engine inoperative transient avlbl pwr[W]
+        self.Keng = -self.Pe * self.etam * self.Kaeo / self.omegareq / 0.02  # Gain between Omega and Peng [W/rad]
 
         # Fuselage
         self.F0 = 1.3 * 0.73  # Parasite drag area of the helicopter    [m^2]
@@ -464,9 +467,10 @@ class Helicopter6DOF:
         self.psipmu = np.deg2rad(-10)  # Control phase shift                           [deg]
 
         # Variables
-        self.P_available = self.Paeo # available engine power, switches based on engine status
+        self.P_available = self.Paeo   # available engine power, switches based on engine status
         self.P_out = 0  # Output of engine integrator dynamics,
         self.state = np.array([0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0])
+        self.trim_controls = np.array([0, 0, 0, 0])
 
     def step(self, actions, virtual=False):
 
@@ -493,8 +497,9 @@ class Helicopter6DOF:
         else:
             raise ValueError("Incorrect input for setting the engine status")
 
-    def calculate_state_derivatives(self, actions, state=None):
+    def calculate_state_derivatives(self, actions, state=None, use_engine_integrator_dynamics=True):
 
+        #  Controls are fraction of blade angle between lower and upper bounds (e.g. 0 < u < 1)
         coll, long, lat, pedal = actions
 
         if state is None:
@@ -503,14 +508,14 @@ class Helicopter6DOF:
             u, v, w, p, q, r, phi, theta, psi, x, y, z, lambda0_mr, lambda0_tr, omega = state
 
         # Converting stick positions to blade angles
-        a1s2 = (self.a1su-self.a1sl)*0.01*lat + self.a1sl
-        b1s2 = (self.b1su-self.b1sl)*0.01*long + self.b1sl
+        a1s2 = (self.a1su-self.a1sl)*lat + self.a1sl
+        b1s2 = (self.b1su-self.b1sl)*long + self.b1sl
 
         # Control angles (in radians)
-        theta_0 = (self.t0u-self.t0l)*0.01*coll + self.t0l            # Main rotor collective
+        theta_0 = (self.t0u-self.t0l)*coll + self.t0l            # Main rotor collective
         theta_1s = b1s2*np.cos(self.psipmu) + a1s2*np.sin(self.psipmu)  # Longitudinal cyclic
         theta_1c = a1s2*np.cos(self.psipmu) + b1s2*np.sin(self.psipmu)  # Lateral cyclic
-        theta_0_tr = (self.t0tru-self.t0trl)*0.01*pedal + self.t0trl  # Tail rotor collective
+        theta_0_tr = (self.t0tru-self.t0trl)*pedal + self.t0trl  # Tail rotor collective
 
         # Other variables
         rho = self.calculate_air_density(-z)  # Air density
@@ -526,17 +531,17 @@ class Helicopter6DOF:
         # Main rotor dynamics #
         #######################
         eps = self.e / self.R_mr  # Rotor blade offset (e/R)        [-]
-        den1 = gamma * (0.25*eps**2 - eps/3 + 0.125)
-        den2 = gamma * (mu_x**2 * (eps**2 - 2 * eps + 1) / 16)
+        den1 = gamma * (0.25 * eps**2 - eps/3 + 0.125)
+        den2 = gamma * (mu_x**2 * (0.0625 * eps**2 - eps * 0.125 + 0.0625))
 
         A = np.eye(3)
         b = np.zeros((3, 1))
-        A[0, 1] = gamma * mu_x * (eps**2 - 2*eps) / (8*self.nu2)
+        A[0, 1] = gamma * mu_x * (2*eps**2 - eps) / (8*self.nu2)
         A[1, 2] = (1-self.nu2) / (den1 - den2)
         A[2, 0] = gamma * mu_x * (1/6 - 0.25*eps) / (-den1-den2)
         A[2, 1] = (1-self.nu2) / (-den1-den2)
 
-        b[0, 0] = (1/2*gamma / 2*self.nu2) * \
+        b[0, 0] = (gamma / (2*self.nu2)) * \
             (theta_0 * ((0.25 - eps/3) + mu_x**2*(0.25*eps**2-1/2*eps+0.25))
              + mu_x*(1/2*eps-1/3)*theta_1s
              + (mu_x**2/6 + 0.2 - mu_x**2*eps*0.25 - 0.25*eps)*self.twist
@@ -556,7 +561,7 @@ class Helicopter6DOF:
              ((2/3 + mu_x**2) * theta_0 * 2
               + (2 * theta_1s + p / omega) * mu_x
               + (mu_z - lambda0_mr) * 2
-              + (1 + mu_x**2) * self.twist)
+              + (1 + mu_x**2) * self.twist)  # CHECKED; NO ERRORS WRT MATLAB FILE (numerically equal until last decimal)
 
         Cd = self.delta0 + self.delta2 * Ct**2
         T_mr = Ct * rho * omega_r**2 * np.pi * self.R_mr**2
@@ -590,7 +595,7 @@ class Helicopter6DOF:
 
         # Tail rotor thrust coefficients: blade element method (bem) and Glauert (gl)
         Ct_bem_tr = self.Cla_tr*self.sigma_tr * (theta_0_tr*(2 + 3*mu_x_tr**2) + 3*mu_z_tr - 6*lambda0_tr) / 12
-        Ct_gl_tr = 2*lambda0_tr*np.sqrt(mu_x_tr**2 + (mu_z_tr-lambda0_tr)**2)
+        Ct_gl_tr = 2*lambda0_tr*np.sqrt(mu_x_tr**2 + (mu_z_tr-lambda0_tr)**2)      # Checked: equal in order 10e-15
 
         # Forces and moments caused by the TR:
         T_tr = Ct_bem_tr * rho * omegar_tr**2 * np.pi * self.R_tr**2
@@ -613,38 +618,41 @@ class Helicopter6DOF:
         # Horizontal stabilizer #
         #########################
 
-        alpha_hs = self.alpha0_hs + np.arctan2((w + q*self.x_hs), u)  # HS incidence[rad]
-        V_hs = np.sqrt(u**2 + (w + q*self.x_hs)**2)  # HS  velocity  [m/s]
+        w_hs = (w + q*self.x_hs)  # Local flow at hs
+        alpha_hs = self.alpha0_hs + np.arctan2(w_hs, u)  # HS incidence[rad]
+        V_hs = np.sqrt(u**2 + w_hs**2)  # HS  velocity  [m/s]
 
-        Z_hs = -1 / 2 * rho * V_hs**2 * 0.65 * self.S_hs * self.Cla_hs * alpha_hs
+        Z_hs = -rho/2 * V_hs**2 * 0.65 * self.S_hs * self.Cla_hs * alpha_hs
         M_hs = Z_hs * self.x_hs
 
         # Vertical fin
-        beta_fin = self.beta0_fin + np.arctan2(v - r*self.x_fin + p*self.z_fin, u)   # VF incidence[rad]
-        V_fin = np.sqrt(u**2 + (v - r*self.x_fin + p*self.z_fin)**2)   # VF  velocity[m / s]
+        v_fin = v - r*self.x_fin + p*self.z_fin
+        beta_fin = self.beta0_fin + np.arctan2(v_fin, u)   # VF incidence[rad]
+        V_fin = np.sqrt(u**2 + v_fin**2)   # VF  velocity[m / s]
 
         Y_fin = -rho/2 * V_fin**2 * self.S_fin * self.Cla_fin * beta_fin
         L_fin = self.z_fin * Y_fin
         N_fin = -self.x_fin * Y_fin
 
-        # Power calculations
+        ######################
+        # Power calculations #
+        ######################
         P_par = self.CDS * rho * V**3 / 2  # Parasite drag [W]
-        P_i = abs(self.k * T_mr * lambda0_mr * omega_r)  # Induced power [W]
+        P_i = np.abs(self.k * T_mr * lambda0_mr * omega_r)  # Induced power [W]
         PpPd = self.sigma_mr*Cd*rho*omega_r**3*np.pi*self.R_mr**2*(1+self.n*mu_x**2)/8  # Total profile drag power [W]
         P_c = -w * self.W  # Climb power [W]
-        P_tr = abs(T_tr / self.M_tr * np.sqrt(abs(T_tr / (2*rho*np.pi*self.R_tr**2))))  # Tail rotor power [W]
+        P_tr = np.abs(T_tr / self.M_tr * np.sqrt(np.abs(T_tr / (2*rho*np.pi*self.R_tr**2))))  # Tail rotor power [W]
         P_req = P_par + P_i + PpPd + P_c + P_tr   # Total power [W]
 
         tau = 0.3
         P_eng = self.Keng*(omega-self.omegareq*1.02)
-        P_in = P_eng
-        self.P_out += (P_in - self.P_out) / tau * self.dt
-        P_eng = self.P_out
+        if use_engine_integrator_dynamics:
+            P_in = P_eng
+            self.P_out += (P_in - self.P_out) / tau * self.dt
+            P_eng = self.P_out
 
-        if P_eng <= 0:
-            P_eng = 0
-        elif P_eng >= self.P_available:
-            P_eng = self.P_available
+        # Enforce engine limits
+        P_eng = np.clip(P_eng, 0, self.P_available)
 
         # Summing rotor forces and moments
         Xmr = -T_mr * np.sin(a1t1s) * np.cos(b1t1c)
@@ -671,13 +679,11 @@ class Helicopter6DOF:
         N = Nmr + N_tr + N_fin
 
         # Accelerations in the body-axes
-        udot = Fx / self.mass - q * w + r * v
-        vdot = Fy / self.mass - r * u + p * w
-        wdot = Fz / self.mass - p * v + q * u
+        udot = Fx / self.mass - q*w + r*v
+        vdot = Fy / self.mass - r*u + p*w
+        wdot = Fz / self.mass - p*v + q*u
 
-        rdot = (N - (self.Iyy-self.Ixx)*p*q + self.Jxz*((L - (self.Izz-self.Iyy)*q*r + self.Jxz*p*q)/self.Ixx - r*q)) \
-               / (self.Izz - self.Jxz**2/self.Ixx)
-
+        rdot = (N - (self.Iyy-self.Ixx)*p*q + self.Jxz*((L - (self.Izz-self.Iyy)*q*r + self.Jxz*p*q)/self.Ixx - r*q)) / (self.Izz - self.Jxz**2/self.Ixx)  # checked
         qdot = (M - (self.Ixx-self.Izz)*r*p - self.Jxz*(p**2-r**2)) / self.Iyy
         pdot = (L - (self.Izz-self.Iyy)*q*r + self.Jxz*(rdot+p*q)) / self.Ixx
 
@@ -698,8 +704,10 @@ class Helicopter6DOF:
         lambda0_mrdot = (Ct_bem_mr-Ct_gl_mr)/self.tau_lambda0_mr
         lambda0_trdot = (Ct_bem_tr-Ct_gl_tr)/self.tau_lambda0_tr
 
-        return np.array([udot, vdot, wdot, pdot, qdot, rdot, psidot, thetadot, phidot,
+        dots = np.array([udot, vdot, wdot, pdot, qdot, rdot, phidot, thetadot, psidot,
                         xdot, ydot, zdot, lambda0_mrdot, lambda0_trdot, Omegadot])
+
+        return dots
 
     def integrate_runge_kutta(self, old_state, actions):
 
@@ -722,6 +730,33 @@ class Helicopter6DOF:
 
         return new_state
 
+    def trim(self):
+
+        trim_state = np.array([17.9102446002439,        # u
+                               -0.0554589175754230,     # v
+                               1.84934948889972,        # w
+                               0,                       # p
+                               0,                       # q
+                               0,                       # r
+                               -0.0299793533511457,     # phi
+                               -0.00178194911194070,    # theta
+                               0,                       # psi
+                               0,                       # x
+                               0,                       # y
+                               -30.4800000000000,       # z
+                               0.0283940809698855,      # lambda MR
+                               0.0290051292102725,      # lambda tr
+                               44.5763725994022])       # omega (MR)
+
+        coll = 59.6351908571695
+        long = 51.0782502737835
+        lat = 57.8619712989154
+        ped = 43.4561660519032
+        self.P_out = 205954.9108792998
+        self.state = trim_state
+        # Control values are percentages: divide by 100 to get actions
+        self.trim_controls = np.array([coll, long, lat, ped])/100
+        return trim_state, self.trim_controls
 
     @staticmethod
     def calculate_air_density(altitude):
@@ -748,8 +783,45 @@ def plot_trim_settings():
 
 
 if __name__ == "__main__":
-    dt = 0.02
-    env = Helicopter3DOF(dt=dt)
-    env.reset(v_initial=0)
+    dt = 0.0200
+    env = Helicopter6DOF(dt=dt)
+    state, trim_controls = env.trim()
+    stats = []
+    while env.t < 40:
+        if 1.0 < env.t < 1.48:
+            action = trim_controls.copy()
+            action[1] += 0.05
+        else:
+            action = trim_controls
+        state, _, _ = env.step(actions=action)
+        env.t += dt
 
-    plot_trim_settings()
+        stats.append({'t': env.t,
+                      'u': state[0],
+                      'v': state[1],
+                      'w': state[2],
+                      'p': state[3],
+                      'q': state[4],
+                      'r': state[5],
+                      'phi': state[6],
+                      'theta': state[7],
+                      'psi': state[8],
+                      'x': state[9],
+                      'y': state[10],
+                      'z': state[11],
+                      'omega': state[14],
+                      'coll': action[0],
+                      'long': action[1],
+                      'lat': action[2],
+                      'ped': action[3]})
+
+    stats = DataFrame(stats)
+    stats_matlab = DataFrame(loadmat("data.mat")["states"])
+    plt.plot(stats['t'], stats['q'], 'b', label='q')
+    plt.plot(stats['t'], stats['p'], 'r', label='p')
+    plt.plot(stats['t'], stats['r'], 'g', label='r')
+    plt.plot(stats['t'], stats_matlab[3], 'r--', label='pm')
+    plt.plot(stats['t'], stats_matlab[4], 'b--', label='qm')
+    plt.plot(stats['t'], stats_matlab[5], 'g--', label='rm')
+    plt.legend()
+    plt.show()
