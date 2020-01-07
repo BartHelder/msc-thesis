@@ -445,7 +445,7 @@ class Helicopter6DOF:
         self.R_tr = 0.95  # Tail rotor radius          [m]
         self.c_tr = 0.18  # Tail rotor blade chord     [m]
         self.f_tr = 1 - 3 * self.S_fin / (4 * self.R_tr ** 2 * np.pi)  # Tl rtr fin blockage factor [-]
-        self.gT = 5.25  # Tail rotor gearing         [-]
+        self.tail_rotor_gearing = 5.25  # Tail rotor gearing         [-]
         self.x_tr = 6.08 - self.dxcg  # Tail rotor x-pos rel to cg [m]
         self.z_tr = 1.72  # Tail rotor z-pos rel to cg [m]
         self.Cla_tr = 5.7  # Tail rotor lift gradient   [1/rad]
@@ -587,7 +587,7 @@ class Helicopter6DOF:
         #######################
 
         # Tail rotor tip speed [m/s]
-        omegar_tr = self.gT * omega * self.R_tr
+        omegar_tr = self.tail_rotor_gearing * omega * self.R_tr
 
         # Normalized tail rotor velocity along x- and z-axes
         mu_x_tr = np.sqrt(u**2 + (w + self.k_1_tr*lambda0_mr*omega_r + q*self.x_tr)**2) / omegar_tr
@@ -730,29 +730,133 @@ class Helicopter6DOF:
 
         return new_state
 
-    def trim(self):
+    def trim(self, trim_speed, flight_path_angle, altitude):
 
-        trim_state = np.array([17.9102446002439,        # u
-                               -0.0554589175754230,     # v
-                               1.84934948889972,        # w
-                               0,                       # p
-                               0,                       # q
-                               0,                       # r
-                               -0.0299793533511457,     # phi
-                               -0.00178194911194070,    # theta
-                               0,                       # psi
-                               0,                       # x
-                               0,                       # y
-                               -30.4800000000000,       # z
-                               0.0283940809698855,      # lambda MR
-                               0.0290051292102725,      # lambda tr
-                               44.5763725994022])       # omega (MR)
+        # trim_state = np.array([17.9102446002439,        # u
+        #                        -0.0554589175754230,     # v
+        #                        1.84934948889972,        # w
+        #                        0,                       # p
+        #                        0,                       # q
+        #                        0,                       # r
+        #                        -0.0299793533511457,     # phi
+        #                        -0.00178194911194070,    # theta
+        #                        0,                       # psi
+        #                        0,                       # x
+        #                        0,                       # y
+        #                        -30.4800000000000,       # z
+        #                        0.0283940809698855,      # lambda MR
+        #                        0.0290051292102725,      # lambda tr
+        #                        44.5763725994022])       # omega (MR)
+        #
+        # coll = 59.6351908571695
+        # long = 51.0782502737835
+        # lat = 57.8619712989154
+        # ped = 43.4561660519032
+        # self.P_out = 205954.9108792998
 
-        coll = 59.6351908571695
-        long = 51.0782502737835
-        lat = 57.8619712989154
-        ped = 43.4561660519032
-        self.P_out = 205954.9108792998
+        # Initial guesses
+        V = trim_speed
+        rho = self.calculate_air_density(altitude)  # Density of air                 [kg/m^3]
+        D = rho / 2 * V ** 2 * self.F0  # Drag                           [N]
+        theta = np.arcsin(-D * np.cos(flight_path_angle) / self.W)  # Fuselage pitch angle   [rad]
+        u = V * np.cos(theta)  # Airspeed along x-axis          [m/s]
+        v = 0  # Airspeed along y-axis          [m/s]
+        w = V * np.sin(theta)  # Airspeed along z-axis          [m/s]
+        p = 0  # Roll rate                      [rad/s]
+        q = 0  # Pitch rate                     [rad/s]
+        r = 0  # Yaw rate                       [rad/s]
+        psi = 0  # Helicopter yaw angle           [rad]
+        phi = 0  # Helicopter roll angle          [rad]
+        lambda0_mr = 0.05  # Norm unif induc downwash of MR [-]
+        lambda0_tr = 0.05  # Norm unif induc downwash of TR [-]
+        lat = 50  # Lateral cyclic position        [#]
+        long = 50  # Longitudinal cyclic position   [#]
+        coll = 75  # MR collective position         [#]
+        pedal = 50  # TR collective position         [#]
+        x = 0  # Position along Earth x-axis    [m]
+        y = 0  # Position along Earth y-axis    [m]
+        z = -altitude  # Position along Earth z-axis    [m]
+        omega = self.omegareq  # Main rotor speed               [rad/s]
+
+        states = np.array([u, v, w, p, q, r, psi, theta, phi, x, y, z, lambda0_mr, lambda0_tr, omega])
+        trimvar = np.array([states[1],  # 1:a  u
+                            states[2],  # 2:  v
+                            states[3],  # 3:  w
+                            states[8],  # 4:  theta
+                            states[9],  # 5:  phi
+                            states[13],  # 6:  lambda0_mr
+                            states[14],  # 7:  lambda0_tr
+                            states[15],  # 8:  Omega
+                            coll,  # 9:  collective
+                            long,  # 10: longitudinal cyclic
+                            lat,  # 11: lateral cyclic
+                            pedal])  # 12: pedal
+
+        f = 1
+        nn = 0
+
+        delta = 1e-11 * (np.ones(len(trimvar), 1))
+        dfdx = np.zeros(len(trimvar))
+
+        while max(abs(f)) > 1e-8:
+            nn = nn + 1
+
+            states[1] = trimvar[1]
+            states[2] = trimvar[2]
+            states[3] = trimvar[3]
+            states[8] = trimvar[4]
+            states[9] = trimvar[5]
+            states[13] = trimvar[6]
+            states[14] = trimvar[7]
+            states[15] = trimvar[8]
+            coll = trimvar[9]
+            long = trimvar[10]
+            lat = trimvar[11]
+            pedal = trimvar[12]
+
+            dot = self.calculate_state_derivatives(actions=[coll, long, lat, pedal],
+                                                   state=states,
+                                                   use_engine_integrator_dynamics=False)
+
+            f = [dot[1:6], dot[10: 15]]
+            f[7] -= V * np.cos(flight_path_angle)
+            f[9] += V * np.sin(flight_path_angle)
+
+            oldtrimvar = trimvar
+
+            for i in range(len(trimvar)):
+                perturb = np.zeros(len(trimvar), 1)
+                perturb[i] = delta[i]
+                trimvar = oldtrimvar + perturb
+
+                states[1] = trimvar[1]
+                states[2] = trimvar[2]
+                states[3] = trimvar[3]
+                states[8] = trimvar[4]
+                states[9] = trimvar[5]
+                states[13] = trimvar[6]
+                states[14] = trimvar[7]
+                states[15] = trimvar[8]
+                coll = trimvar[9]
+                long = trimvar[10]
+                lat = trimvar[11]
+                pedal = trimvar[12]
+
+                dot = self.calculate_state_derivatives(actions=[coll, long, lat, pedal],
+                                                       state=states,
+                                                       use_engine_integrator_dynamics=False)
+
+                fnew = [dot[1:6, dot[10:15]]]
+                fnew[7] = fnew[7] - V * np.cos(flight_path_angle)
+                fnew[9] = fnew[9] + V * np.sin(flight_path_angle)
+
+                df = (fnew - f) / delta(i)
+                dfdx[:, i] = df
+
+            inc = -np.invert(dfdx) * f
+            trimvar += inc
+
+
         self.state = trim_state
         # Control values are percentages: divide by 100 to get actions
         self.trim_controls = np.array([coll, long, lat, ped])/100

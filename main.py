@@ -4,8 +4,7 @@ import multiprocessing as mp
 import itertools
 import json
 import pandas as pd
-
-from heli_models import Helicopter1DOF, Helicopter3DOF
+from heli_models import Helicopter6DOF
 from plotting import plot_neural_network_weights_2, plot_stats_3dof, plot_policy_function
 from HDP_tf import Agent
 
@@ -65,7 +64,7 @@ if __name__ == "__main__":
     tf.random.set_seed(167)
     cfp = "config.json"
 
-    env = Helicopter3DOF()
+    env = Helicopter6DOF()
     env.setup_from_config(task="sinusoid", config_path=cfp)
 
     CollectiveAgent = Agent(cfp, control_channel="collective")
