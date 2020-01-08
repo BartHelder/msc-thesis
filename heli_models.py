@@ -497,7 +497,7 @@ class Helicopter6DOF:
         else:
             raise ValueError("Incorrect input for setting the engine status")
 
-    def calculate_state_derivatives(self, actions, state=None, use_engine_integrator_dynamics=True):
+    def calculate_state_derivatives(self, actions, state=None, trimming=True):
 
         #  Controls are fraction of blade angle between lower and upper bounds (e.g. 0 < u < 1)
         coll, long, lat, pedal = actions
@@ -646,10 +646,13 @@ class Helicopter6DOF:
 
         tau = 0.3
         P_eng = self.Keng*(omega-self.omegareq*1.02)
-        if use_engine_integrator_dynamics:
+        if trimming:
+            self.P_out = P_eng
+        else:
             P_in = P_eng
             self.P_out += (P_in - self.P_out) / tau * self.dt
             P_eng = self.P_out
+
 
         # Enforce engine limits
         P_eng = np.clip(P_eng, 0, self.P_available)
@@ -706,7 +709,6 @@ class Helicopter6DOF:
 
         dots = np.array([udot, vdot, wdot, pdot, qdot, rdot, phidot, thetadot, psidot,
                         xdot, ydot, zdot, lambda0_mrdot, lambda0_trdot, Omegadot])
-
         return dots
 
     def integrate_runge_kutta(self, old_state, actions):
@@ -754,6 +756,22 @@ class Helicopter6DOF:
         # ped = 43.4561660519032
         # self.P_out = 205954.9108792998
 
+        def trim_to_state(states, trimvar):
+            states[0] = trimvar[0]
+            states[1] = trimvar[1]
+            states[2] = trimvar[2]
+            states[7] = trimvar[3]
+            states[6] = trimvar[4]
+            states[12] = trimvar[5]
+            states[13] = trimvar[6]
+            states[14] = trimvar[7]
+            coll = trimvar[8]
+            long = trimvar[9]
+            lat = trimvar[10]
+            pedal = trimvar[11]
+            actions = np.array([coll, long, lat, pedal])
+            return states, actions
+
         # Initial guesses
         V = trim_speed
         rho = self.calculate_air_density(altitude)  # Density of air                 [kg/m^3]
@@ -769,97 +787,71 @@ class Helicopter6DOF:
         phi = 0  # Helicopter roll angle          [rad]
         lambda0_mr = 0.05  # Norm unif induc downwash of MR [-]
         lambda0_tr = 0.05  # Norm unif induc downwash of TR [-]
-        lat = 50  # Lateral cyclic position        [#]
-        long = 50  # Longitudinal cyclic position   [#]
-        coll = 75  # MR collective position         [#]
-        pedal = 50  # TR collective position         [#]
+        coll = 0.75  # MR collective position         [#]
+        long = 0.50  # Longitudinal cyclic position   [#]
+        lat = 0.5  # Lateral cyclic position        [#]
+        pedal = 0.50  # TR collective position         [#]
         x = 0  # Position along Earth x-axis    [m]
         y = 0  # Position along Earth y-axis    [m]
         z = -altitude  # Position along Earth z-axis    [m]
         omega = self.omegareq  # Main rotor speed               [rad/s]
-
-        states = np.array([u, v, w, p, q, r, psi, theta, phi, x, y, z, lambda0_mr, lambda0_tr, omega])
-        trimvar = np.array([states[1],  # 1:a  u
-                            states[2],  # 2:  v
-                            states[3],  # 3:  w
-                            states[8],  # 4:  theta
-                            states[9],  # 5:  phi
-                            states[13],  # 6:  lambda0_mr
-                            states[14],  # 7:  lambda0_tr
-                            states[15],  # 8:  Omega
+        states = np.array([u, v, w, p, q, r, phi, theta, psi, x, y, z, lambda0_mr, lambda0_tr, omega])
+        trimvar = np.array([states[0],  # 1:a  u
+                            states[1],  # 2:  v
+                            states[2],  # 3:  w
+                            states[7],  # 4:  theta
+                            states[6],  # 5:  phi
+                            states[12],  # 6:  lambda0_mr
+                            states[13],  # 7:  lambda0_tr
+                            states[14],  # 8:  Omega
                             coll,  # 9:  collective
                             long,  # 10: longitudinal cyclic
                             lat,  # 11: lateral cyclic
                             pedal])  # 12: pedal
 
-        f = 1
+        f = [1]
         nn = 0
 
-        delta = 1e-11 * (np.ones(len(trimvar), 1))
-        dfdx = np.zeros(len(trimvar))
+        delta = 1e-11
+        dfdx = np.zeros((len(trimvar), len(trimvar)))
 
-        while max(abs(f)) > 1e-8:
+        while max(np.abs(f)) > 1e-8:
             nn = nn + 1
 
-            states[1] = trimvar[1]
-            states[2] = trimvar[2]
-            states[3] = trimvar[3]
-            states[8] = trimvar[4]
-            states[9] = trimvar[5]
-            states[13] = trimvar[6]
-            states[14] = trimvar[7]
-            states[15] = trimvar[8]
-            coll = trimvar[9]
-            long = trimvar[10]
-            lat = trimvar[11]
-            pedal = trimvar[12]
-
-            dot = self.calculate_state_derivatives(actions=[coll, long, lat, pedal],
+            states, actions = trim_to_state(states, trimvar)
+            dot = self.calculate_state_derivatives(actions=actions,
                                                    state=states,
-                                                   use_engine_integrator_dynamics=False)
+                                                   trimming=True)
 
-            f = [dot[1:6], dot[10: 15]]
-            f[7] -= V * np.cos(flight_path_angle)
-            f[9] += V * np.sin(flight_path_angle)
+            f = np.hstack((dot[0:6], dot[9:]))
+            f[6] -= V * np.cos(flight_path_angle)
+            f[8] += V * np.sin(flight_path_angle)
 
             oldtrimvar = trimvar
 
             for i in range(len(trimvar)):
-                perturb = np.zeros(len(trimvar), 1)
-                perturb[i] = delta[i]
+                perturb = np.zeros(len(trimvar))
+                perturb[i] = delta
                 trimvar = oldtrimvar + perturb
-
-                states[1] = trimvar[1]
-                states[2] = trimvar[2]
-                states[3] = trimvar[3]
-                states[8] = trimvar[4]
-                states[9] = trimvar[5]
-                states[13] = trimvar[6]
-                states[14] = trimvar[7]
-                states[15] = trimvar[8]
-                coll = trimvar[9]
-                long = trimvar[10]
-                lat = trimvar[11]
-                pedal = trimvar[12]
-
-                dot = self.calculate_state_derivatives(actions=[coll, long, lat, pedal],
+                states, actions = trim_to_state(states, trimvar)
+                dot = self.calculate_state_derivatives(actions=actions,
                                                        state=states,
-                                                       use_engine_integrator_dynamics=False)
+                                                       trimming=True)
 
-                fnew = [dot[1:6, dot[10:15]]]
-                fnew[7] = fnew[7] - V * np.cos(flight_path_angle)
-                fnew[9] = fnew[9] + V * np.sin(flight_path_angle)
+                fnew = np.hstack((dot[0:6], dot[9:]))
+                fnew[6] -= V * np.cos(flight_path_angle)
+                fnew[8] += V * np.sin(flight_path_angle)
 
-                df = (fnew - f) / delta(i)
-                dfdx[:, i] = df
+                dfdx[:, i] = (fnew - f) / delta
 
-            inc = -np.invert(dfdx) * f
-            trimvar += inc
+            inc = -np.linalg.inv(dfdx) @ f[:, None]
+            trimvar += inc.ravel()
 
-
+        trim_state, trim_controls = trim_to_state(states, trimvar)
         self.state = trim_state
         # Control values are percentages: divide by 100 to get actions
-        self.trim_controls = np.array([coll, long, lat, ped])/100
+        self.trim_controls = trim_controls
+
         return trim_state, self.trim_controls
 
     @staticmethod
@@ -871,6 +863,7 @@ class Helicopter6DOF:
         """
         # density   = rho0*(1+lambda*h/T0)^(-1*(g/(R*lambda)+1))
         return 1.225 * (1 - 0.0065 * altitude / 288.15)**(-(9.80665 / (287.05 * -0.0065) + 1))
+
 
 def plot_trim_settings():
     dt = 0.02
@@ -886,10 +879,10 @@ def plot_trim_settings():
     plt.show()
 
 
-if __name__ == "__main__":
+def test_6dof():
     dt = 0.0200
     env = Helicopter6DOF(dt=dt)
-    state, trim_controls = env.trim()
+    state, trim_controls = env.trim(trim_speed=35*0.5144, flight_path_angle=0, altitude=100*0.3048)
     stats = []
     while env.t < 40:
         if 1.0 < env.t < 1.48:
@@ -929,3 +922,7 @@ if __name__ == "__main__":
     plt.plot(stats['t'], stats_matlab[5], 'g--', label='rm')
     plt.legend()
     plt.show()
+
+
+if __name__ == "__main__":
+    test_6dof()

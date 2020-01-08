@@ -65,7 +65,7 @@ if __name__ == "__main__":
     cfp = "config.json"
 
     env = Helicopter6DOF()
-    env.setup_from_config(task="sinusoid", config_path=cfp)
+
 
     CollectiveAgent = Agent(cfp, control_channel="collective")
     CollectiveAgent.ds_da = tf.constant(np.array([[-0.8], [1.0]]))

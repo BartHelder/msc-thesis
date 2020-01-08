@@ -1,0 +1,41 @@
+{ "dt": 0.02,
+  "agent":
+    {"cyclic_lon":
+      {"action_scaling": 15,
+      "gamma": 0.6,
+      "lr_actor": 0.1,
+      "lr_critic": 0.05,
+      "n_hidden": 6,
+      "weights_stddev": 0.04,
+      "use_nesterov_momentum": 0,
+      "momentum": 0.0,
+      "reward_weight": 100,
+      "tracked_state": 4,
+      "actor_critic_states": [4, 5] },
+    "collective":
+      {"action_scaling": 5,
+      "gamma": 0.5,
+      "lr_actor": 0.1,
+      "lr_critic": 0.05,
+      "n_hidden": 8,
+      "weights_stddev": 0.04,
+      "use_nesterov_momentum": 0,
+      "momentum": 0.1,
+      "reward_weight": 0.05,
+      "tracked_state": 1,
+      "actor_critic_states": [3] }
+    },
+  "training":
+    {"stop_training_time": 120,
+    "trim_speed": 20,
+    "updates_per_timestep":  1},
+  "env": 
+    {"tasks": 
+      { "sinusoid": {"kp": 0, "ki": 0, "kd": 0, "ref": 20, "period": 30},
+        "velocity":  {"kp": -1, "ki": -0.05, "kd": 0, "ref": 30},
+        "stop_over_point": {"kp": -0.3, "ki": 0, "kd": 2, "ref": 1000}
+      }
+    },
+  "path": "/home/bart/PycharmProjects/msc-thesis/saved_models/"
+}
+
