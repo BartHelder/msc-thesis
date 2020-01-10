@@ -68,30 +68,6 @@ class TFCritic(tf.keras.Model):
         return self.v(x)
 
 
-class CollectivePID:
-
-    def __init__(self, h_ref=25, dt=0.01, proportional_gain=2, integral_gain=0.2, derivative_gain=0.1):
-        self.h_ref = h_ref
-        self.hdot_corr = 0
-        self.hdot_err = 0
-        self.dt = dt
-        self.Kp = proportional_gain
-        self.Ki = integral_gain
-        self.Kd = derivative_gain
-
-    def __call__(self, obs):
-
-        hdot_ref = self.Kd * (self.h_ref - -obs[1])
-        hdot = (obs[2] * np.sin(obs[4]) - obs[3] * np.cos(obs[4]))
-        self.hdot_err = (hdot_ref - hdot)
-        collective = np.deg2rad(5 + self.Kp * self.hdot_err + self.Ki * self.hdot_corr)
-
-        return collective
-
-    def increment_hdot_error(self):
-        self.hdot_corr += self.dt * self.hdot_err
-
-
 class HDPAgentTF:
 
     def __init__(self,

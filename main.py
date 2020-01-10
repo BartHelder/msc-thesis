@@ -7,6 +7,7 @@ import pandas as pd
 from heli_models import Helicopter6DOF
 from plotting import plot_neural_network_weights_2, plot_stats_3dof, plot_policy_function
 from HDP_tf import Agent
+from PID import LatPedPID
 
 def do_one_trial(env,
                  agent,
@@ -62,43 +63,47 @@ def multiprocess_tasks(env, learning_rates, sigmas, n_episodes=100, n_cores=4):
 if __name__ == "__main__":
 
     tf.random.set_seed(167)
-    cfp = "config.json"
+    cfp = "config_6dof.json"
 
     env = Helicopter6DOF()
+    trim_state, trim_actions = env.trim(trim_speed=20, flight_path_angle=0, altitude=0)
 
-
-    CollectiveAgent = Agent(cfp, control_channel="collective")
-    CollectiveAgent.ds_da = tf.constant(np.array([[-0.8], [1.0]]))
-    CyclicAgent = Agent(cfp, control_channel="cyclic_lon")
-    CyclicAgent.ds_da = tf.constant(np.array([[0], [-0.08], [0.08]]))
-
-    agents = (CollectiveAgent, CyclicAgent)
-    observation, trim_actions = env.reset(v_initial=20)
+    ColAgent = Agent(cfp, control_channel="collective")
+    ColAgent.ds_da = tf.constant(np.array([[-0.8], [1.0]]))
+    LonAgent = Agent(cfp, control_channel="cyclic_lon")
+    LonAgent.ds_da = tf.constant(np.array([[0], [-0.08], [0.08]]))
+    LatPedController = LatPedPID(config_path=cfp,
+                                 phi_trim=trim_state[6],
+                                 lat_trim=trim_actions[2],
+                                 pedal_trim=trim_actions[3])
+    agents = (ColAgent, LonAgent)
     stats = []
     reward = [None, None]
-    weight_stats = {'t': [], 'wci': [], 'wco': [], 'wai': [], 'wao': []}
-
     done = False
+    observation = trim_state.copy()
     while not done:
 
         # Get new reference
-        reference = env.get_ref()
 
         # Augment state with tracking errors
-        augmented_states = (CollectiveAgent.augment_state(observation, reference),
-                            CyclicAgent.augment_state(observation, reference))
+        augmented_states = (ColAgent.augment_state(observation, reference=trim_state),
+                            LonAgent.augment_state(observation, reference=trim_state))
 
+        lateral_cyclic, pedal = LatPedController(observation)
         # Get actions from actors
-        actions = (CollectiveAgent.actor(augmented_states[0]).numpy().squeeze(),
-                   CyclicAgent.actor(augmented_states[1]).numpy().squeeze())
+        actions = (ColAgent.actor(augmented_states[0]).numpy().squeeze(),
+                   LonAgent.actor(augmented_states[1]).numpy().squeeze(),
+                   lateral_cyclic,
+                   pedal
+                   )
 
         # Take step in the environment
         next_observation, _, done = env.step(actions)
 
         # Get rewards, update actor and critic networks
         for agent, count in zip(agents, itertools.count()):
-            reward[count] = agent.get_reward(next_observation, reference)
-            next_augmented_state = agent.augment_state(next_observation, reference)
+            reward[count] = agent.get_reward(next_observation, trim_state)
+            next_augmented_state = agent.augment_state(next_observation, trim_state)
             td_target = reward[count] + agent.gamma * agent.critic(next_augmented_state)
             agent.update_networks(td_target, augmented_states[count], n_updates=1)
             if count == 1:
@@ -106,19 +111,25 @@ if __name__ == "__main__":
 
         # Log data
         stats.append({'t': env.t,
-                      'x': observation[0],
-                      'z': observation[1],
-                      'u': observation[2],
-                      'w': observation[3],
-                      'theta': observation[4],
-                      'q': observation[5],
-                      'reference': env.get_ref(),
+                      'u': observation[0],
+                      'v': observation[1],
+                      'w': observation[2],
+                      'p': observation[3],
+                      'q': observation[4],
+                      'r': observation[5],
+                      'phi': observation[6],
+                      'theta': observation[7],
+                      'psi': observation[8],
+                      'x': observation[9],
+                      'y': observation[10],
+                      'z': observation[11],
+                      'reference': trim_state,
                       'collective': actions[0],
                       'cyclic': actions[1],
                       'r1': reward[0],
                       'r2': reward[1]})
 
-        if env.t > 280:
+        if env.t > 10:
             done = True
 
         # Next step..

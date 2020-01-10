@@ -482,6 +482,7 @@ class Helicopter6DOF:
         if self.t > self.t_max:
             done = True
         reward = 0
+        self.t += self.dt
 
         return state, reward, done
 
