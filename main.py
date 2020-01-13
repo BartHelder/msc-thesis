@@ -5,7 +5,7 @@ import itertools
 import json
 import pandas as pd
 from heli_models import Helicopter6DOF
-from plotting import plot_neural_network_weights_2, plot_stats_3dof, plot_policy_function
+from plotting import plot_neural_network_weights_2, plot_stats_6dof, plot_policy_function
 from HDP_tf import Agent
 from PID import LatPedPID
 
@@ -62,15 +62,15 @@ def multiprocess_tasks(env, learning_rates, sigmas, n_episodes=100, n_cores=4):
 
 if __name__ == "__main__":
 
-    tf.random.set_seed(167)
+    tf.random.set_seed(42)
     cfp = "config_6dof.json"
 
     env = Helicopter6DOF()
     trim_state, trim_actions = env.trim(trim_speed=20, flight_path_angle=0, altitude=0)
 
-    ColAgent = Agent(cfp, control_channel="collective")
-    ColAgent.ds_da = tf.constant(np.array([[-0.8], [1.0]]))
-    LonAgent = Agent(cfp, control_channel="cyclic_lon")
+    ColAgent = Agent(cfp, control_channel="collective", trim_value=trim_actions[0])
+    ColAgent.ds_da = tf.constant(np.array([[-0.8], [0.8]]))
+    LonAgent = Agent(cfp, control_channel="cyclic_lon", trim_value=trim_actions[1])
     LonAgent.ds_da = tf.constant(np.array([[0], [-0.08], [0.08]]))
     LatPedController = LatPedPID(config_path=cfp,
                                  phi_trim=trim_state[6],
@@ -91,11 +91,24 @@ if __name__ == "__main__":
 
         lateral_cyclic, pedal = LatPedController(observation)
         # Get actions from actors
-        actions = (ColAgent.actor(augmented_states[0]).numpy().squeeze(),
+        actions = [ColAgent.actor(augmented_states[0]).numpy().squeeze(),
                    LonAgent.actor(augmented_states[1]).numpy().squeeze(),
                    lateral_cyclic,
-                   pedal
-                   )
+                   pedal]
+
+        if 1.0 < env.t < 1.5:
+            actions[1] += 0.025
+        # actions = [trim_actions[0],
+        #            trim_actions[1],
+        #            trim_actions[2],
+        #            trim_actions[3],
+        #            ]
+
+        # actions = [trim_actions[0],
+        #            trim_actions[1],
+        #            lateral_cyclic,
+        #            pedal
+        #            ]
 
         # Take step in the environment
         next_observation, _, done = env.step(actions)
@@ -123,19 +136,20 @@ if __name__ == "__main__":
                       'x': observation[9],
                       'y': observation[10],
                       'z': observation[11],
-                      'reference': trim_state,
-                      'collective': actions[0],
-                      'cyclic': actions[1],
+                      'ref': trim_state,
+                      'col': actions[0],
+                      'lon': actions[1],
+                      'lat': actions[2],
+                      'ped': actions[3],
                       'r1': reward[0],
                       'r2': reward[1]})
-
-        if env.t > 10:
+        if env.t > 60 or abs(observation[7]) > np.deg2rad(100) or abs(observation[6]) > np.deg2rad(100):
             done = True
 
         # Next step..
         observation = next_observation
 
     stats = pd.DataFrame(stats)
-    plot_stats_3dof(stats)
+    plot_stats_6dof(stats)
 
 

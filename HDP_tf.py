@@ -21,39 +21,43 @@ def scaled_tanh(scale, x):
 
 class TFActorCyclic(tf.keras.Model):
 
-    def __init__(self, n_hidden, action_scaling, initializer):
+    def __init__(self, n_hidden, initializer, trim_value):
         super(TFActorCyclic, self).__init__()
+        self.trim_value = (trim_value - 0.5)
         self.h1 = kl.Dense(n_hidden,
                            activation='tanh',
                            use_bias=False,
                            kernel_initializer=initializer)
         self.a = kl.Dense(1,
-                          activation=partial(scaled_tanh, action_scaling),
+                          activation='sigmoid',
+                          kernel_initializer=initializer,
                           use_bias=False,
-                          kernel_initializer=initializer)
+                          bias_initializer=tf.initializers.constant(value=(trim_value - 0.5)))
 
     def call(self, x):
         x = self.h1(x)
-        return self.a(x)
+        return self.trim_value + self.a(x)
 
 
 class TFActorColl(tf.keras.Model):
 
-    def __init__(self, n_hidden, initializer, action_scaling):
+    def __init__(self, n_hidden, initializer, trim_value):
         super(TFActorColl, self).__init__()
-        self.action_scaling = action_scaling
+        self.trim_value = (trim_value - 0.5)
         self.h1 = kl.Dense(n_hidden,
                            activation='tanh',
                            use_bias=False,
                            kernel_initializer=initializer)
+
         self.a = kl.Dense(1,
-                          activation=partial(scaled_tanh, action_scaling),
+                          activation='sigmoid',
                           kernel_initializer=initializer,
-                          use_bias=False)
+                          use_bias=False,
+                          bias_initializer=tf.initializers.constant(value=(trim_value - 0.5)))
 
     def call(self, x):
         x = self.h1(x)
-        return self.action_scaling + self.a(x)
+        return self.trim_value + self.a(x)
 
 
 class TFCritic(tf.keras.Model):
@@ -256,7 +260,8 @@ class Agent:
 
     def __init__(self,
                  config,
-                 control_channel):
+                 control_channel,
+                 trim_value):
 
         if control_channel == "cyclic_lon":
             actor = TFActorCyclic
@@ -271,7 +276,7 @@ class Agent:
         self.control_channel = control_channel
         initializer = tf.initializers.TruncatedNormal(mean=0.0, stddev=conf["weights_stddev"])
         self.actor = actor(n_hidden=conf["n_hidden"],
-                           action_scaling=np.deg2rad(conf["action_scaling"]),
+                           trim_value=trim_value,
                            initializer=initializer)
         self.critic = TFCritic(n_hidden=conf["n_hidden"], initializer=initializer)
         self.optimizer_actor = ko.SGD(lr=conf["lr_actor"],

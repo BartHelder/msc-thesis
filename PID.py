@@ -71,13 +71,14 @@ class CollectivePID:
 
 
 class LatPedPID:
-    def __init__(self, phi_trim, lat_trim, pedal_trim, config_path, dt=0.02):
+    def __init__(self, phi_trim, lat_trim, pedal_trim, config_path):
         with open(config_path, 'r') as f:
-            config = json.load(f)["agent"]["lateralPID"]
-        self.dt = dt
-        self.gains = np.array([config["Ky"], config["Ky_int"], config["Ky_dot"],
-                               np.rad2deg(config["Kphi"]), np.rad2deg(config["Kphi"]), np.rad2deg(config["Kp"]),
-                               np.rad2deg(config["Kpsi"]), np.rad2deg(config["Kpsi_int"]), np.rad2deg(config["Kr"])])
+            config = json.load(f)
+            ca = config["agent"]["lateralPID"]
+        self.dt = config["dt"]
+        self.gains = np.array([ca["Ky"], ca["Ky_int"], ca["Ky_dot"],
+                               np.rad2deg(ca["Kphi"]), np.rad2deg(ca["Kphi"]), np.rad2deg(ca["Kp"]),
+                               np.rad2deg(ca["Kpsi"]), np.rad2deg(ca["Kpsi_int"]), np.rad2deg(ca["Kr"])])
         self.phi_trim = phi_trim
         self.lat_trim = lat_trim
         self.pedal_trim = pedal_trim

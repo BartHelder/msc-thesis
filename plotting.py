@@ -223,6 +223,129 @@ def plot_stats_3dof(df: pd.DataFrame, results_only=False, color_palette=None):
 
         plt.show()
 
+
+def plot_stats_6dof(df: pd.DataFrame, results_only=False, color_palette=None):
+
+    sns.set(context='paper')
+    if color_palette is None:
+        cp = sns.color_palette()
+    else:
+        cp = sns.color_palette(color_palette)
+
+    refs = np.stack(df['ref'])
+
+    fig1 = plt.figure(figsize=(6, 6))
+
+    ax = fig1.add_subplot(411)
+    ax.plot(df['t'], -refs[:, 11], c=cp[3], ls='--', label='reference')
+    ax.plot(df['t'], -df['z'], c=cp[0])
+    plt.ylabel('h [m]')
+    plt.legend()
+    ax.set_xticklabels([])
+    ax = fig1.add_subplot(412)
+    ax.plot(df['t'], df['r1'], c=cp[0])
+    plt.ylabel('Reward [-]')
+    ax.set_xticklabels([])
+    ax = fig1.add_subplot(413)
+    ax.plot(df['t'], np.rad2deg(refs[:, 7]), c=cp[3], ls='--')
+    ax.plot(df['t'], df['theta'] * 180 / np.pi, c=cp[0])
+    ax.set_xticklabels([])
+    plt.ylabel('Pitch angle [deg]')
+    ax = fig1.add_subplot(414)
+    ax.plot(df['t'], df['r2'], c=cp[0])
+    plt.ylabel('Reward [-]')
+    plt.xlabel('Time [s]')
+
+    plt.show()
+
+    if not results_only:
+        fig2 = plt.figure(figsize=(6, 6))
+        ax = fig2.add_subplot(411)
+        ax.plot(df['t'], df['col'], c=cp[0])
+        plt.ylabel('Collective [%]')
+        ax.set_xticklabels([])
+
+        ax = fig2.add_subplot(412)
+        ax.plot(df['t'], df['lon'], c=cp[0], label='')
+        plt.ylabel('Longitudinal [%]')
+        ax.set_xticklabels([])
+
+        ax = fig2.add_subplot(413)
+        ax.plot(df['t'], df['lat'], c=cp[0], label='')
+        plt.ylabel('Lateral [%]')
+        ax.set_xticklabels([])
+
+        ax = fig2.add_subplot(414)
+        ax.plot(df['t'], df['ped'], c=cp[0], label='')
+        plt.xlabel('Time [s]')
+        plt.ylabel('Pedal [%]')
+
+        plt.show()
+
+        fig3 = plt.figure(figsize=(6, 10))
+        ax = fig3.add_subplot(511)
+        ax.plot(df['t'], refs[:, 0], c=cp[3], ls='--', label='reference')
+        ax.plot(df['t'], df['x'], c=cp[0])
+        plt.ylabel('x [m]')
+        ax.set_xticklabels([])
+        ax = fig3.add_subplot(512)
+        ax.plot(df['t'], -refs[:, 1], c=cp[3], ls='--', label='reference')
+        ax.plot(df['t'], -df['z'], c=cp[0])
+        plt.ylabel('h [m]')
+        ax.set_xticklabels([])
+        ax = fig3.add_subplot(513)
+        ax.plot(df['t'], refs[:, 2], c=cp[3], ls='--', label='reference')
+        ax.plot(df['t'], df['u'], c=cp[0], label='state')
+        plt.ylabel('u [m/s]')
+        plt.legend()
+        ax.set_xticklabels([])
+        ax = fig3.add_subplot(514)
+        ax.plot(df['t'], refs[:, 3], c=cp[3], ls='--', label='reference')
+        ax.plot(df['t'], df['w'], c=cp[0])
+        plt.ylabel('w [m/s]')
+        ax.set_xticklabels([])
+        ax = fig3.add_subplot(515)
+        ax.plot(df['t'], np.rad2deg(refs[:, 5]), c=cp[3], ls='--', label='reference')
+        ax.plot(df['t'], df['q'] * 180 / np.pi, c=cp[0])
+        plt.ylabel('q [deg/s]')
+        plt.xlabel('Time [s]')
+
+        plt.show()
+
+        fig4 = plt.figure(figsize=(6, 10))
+        ax = fig4.add_subplot(511)
+        ax.plot(df['t'], refs[:, 10], c=cp[3], ls='--', label='reference')
+        ax.plot(df['t'], df['y'], c=cp[0])
+        plt.ylabel('y [m]')
+        ax.set_xticklabels([])
+
+        ax = fig4.add_subplot(512)
+        ax.plot(df['t'], refs[:, 6] * 180 / np.pi, c=cp[3], ls='--', label='reference')
+        ax.plot(df['t'], df['phi'] * 180 / np.pi, c=cp[0])
+        plt.ylabel('phi [deg]')
+        ax.set_xticklabels([])
+
+        ax = fig4.add_subplot(513)
+        ax.plot(df['t'], refs[:, 8] * 180 / np.pi, c=cp[3], ls='--', label='reference')
+        ax.plot(df['t'], df['psi'] * 180 / np.pi, c=cp[0], label='state')
+        plt.ylabel('psi [deg]')
+        plt.legend()
+        ax.set_xticklabels([])
+
+        ax = fig4.add_subplot(514)
+        ax.plot(df['t'], refs[:, 1], c=cp[3], ls='--', label='reference')
+        ax.plot(df['t'], df['v'], c=cp[0])
+        plt.ylabel('v [m/s]')
+        ax.set_xticklabels([])
+
+        ax = fig4.add_subplot(515)
+        ax.plot(df['t'], np.rad2deg(refs[:, 5]), c=cp[3], ls='--', label='reference')
+        ax.plot(df['t'], df['r'] * 180 / np.pi, c=cp[0])
+        plt.ylabel('r [deg/s]')
+        plt.xlabel('Time [s]')
+
+        plt.show()
+
 def plot_neural_network_weights(data, info):
 
     sns.set()
