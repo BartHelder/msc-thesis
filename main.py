@@ -71,7 +71,7 @@ if __name__ == "__main__":
     ColAgent = Agent(cfp, control_channel="collective", trim_value=trim_actions[0])
     ColAgent.ds_da = tf.constant(np.array([[-0.8], [0.8]]))
     LonAgent = Agent(cfp, control_channel="cyclic_lon", trim_value=trim_actions[1])
-    LonAgent.ds_da = tf.constant(np.array([[0], [-0.08], [0.08]]))
+    LonAgent.ds_da = tf.constant(np.array([[1.0], [-1.0], [1.0]]))
     LatPedController = LatPedPID(config_path=cfp,
                                  phi_trim=trim_state[6],
                                  lat_trim=trim_actions[2],
@@ -81,13 +81,21 @@ if __name__ == "__main__":
     reward = [None, None]
     done = False
     observation = trim_state.copy()
+    ref2 = trim_state.copy()
+
     while not done:
 
         # Get new reference
-
+        if env.t < 50:
+            ref = trim_state
+        elif 50 <= env.t < 80:
+            ref = ref2
+            ref[11] += 0.01
+        else:
+            ref = ref2
         # Augment state with tracking errors
-        augmented_states = (ColAgent.augment_state(observation, reference=trim_state),
-                            LonAgent.augment_state(observation, reference=trim_state))
+        augmented_states = (ColAgent.augment_state(observation, reference=ref),
+                            LonAgent.augment_state(observation, reference=ref))
 
         lateral_cyclic, pedal = LatPedController(observation)
         # Get actions from actors
@@ -115,8 +123,8 @@ if __name__ == "__main__":
 
         # Get rewards, update actor and critic networks
         for agent, count in zip(agents, itertools.count()):
-            reward[count] = agent.get_reward(next_observation, trim_state)
-            next_augmented_state = agent.augment_state(next_observation, trim_state)
+            reward[count] = agent.get_reward(next_observation, ref)
+            next_augmented_state = agent.augment_state(next_observation, ref)
             td_target = reward[count] + agent.gamma * agent.critic(next_augmented_state)
             agent.update_networks(td_target, augmented_states[count], n_updates=1)
             if count == 1:
@@ -143,7 +151,8 @@ if __name__ == "__main__":
                       'ped': actions[3],
                       'r1': reward[0],
                       'r2': reward[1]})
-        if env.t > 60 or abs(observation[7]) > np.deg2rad(100) or abs(observation[6]) > np.deg2rad(100):
+
+        if env.t > 100 or abs(observation[7]) > np.deg2rad(100) or abs(observation[6]) > np.deg2rad(100):
             done = True
 
         # Next step..
