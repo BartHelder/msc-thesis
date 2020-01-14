@@ -362,7 +362,7 @@ class Helicopter6DOF:
 
         self.dt = dt
         self.t = 0
-        self.t_max = 120
+        self.t_max = 240
         self.g = 9.80665  # Gravitational acceleration               [m/s^2]
         self.R = 287.05  # Specific gas constant of air             [J/kg/K]
         self.T0 = 288.15  # Sea level temperature in ISA             [K]
@@ -501,7 +501,7 @@ class Helicopter6DOF:
     def calculate_state_derivatives(self, actions, state=None, trimming=True):
 
         #  Controls are fraction of blade angle between lower and upper bounds (e.g. 0 < u < 1)
-        coll, long, lat, pedal = actions
+        coll, long, lat, pedal = np.clip(actions, 0, 1.0)
 
         if state is None:
             u, v, w, p, q, r, phi, theta, psi, x, y, z, lambda0_mr, lambda0_tr, omega = self.state
@@ -653,7 +653,6 @@ class Helicopter6DOF:
             P_in = P_eng
             self.P_out += (P_in - self.P_out) / tau * self.dt
             P_eng = self.P_out
-
 
         # Enforce engine limits
         P_eng = np.clip(P_eng, 0, self.P_available)
@@ -923,6 +922,7 @@ def test_6dof():
     plt.plot(stats['t'], stats_matlab[5], 'g--', label='rm')
     plt.legend()
     plt.show()
+
 
 
 if __name__ == "__main__":

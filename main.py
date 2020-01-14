@@ -62,7 +62,7 @@ def multiprocess_tasks(env, learning_rates, sigmas, n_episodes=100, n_cores=4):
 
 if __name__ == "__main__":
 
-    tf.random.set_seed(42)
+    tf.random.set_seed(222)
     cfp = "config_6dof.json"
 
     env = Helicopter6DOF()
@@ -71,13 +71,18 @@ if __name__ == "__main__":
     ColAgent = Agent(cfp, control_channel="collective", trim_value=trim_actions[0])
     ColAgent.ds_da = tf.constant(np.array([[-0.8], [0.8]]))
     LonAgent = Agent(cfp, control_channel="cyclic_lon", trim_value=trim_actions[1])
-    LonAgent.ds_da = tf.constant(np.array([[1.0], [-1.0], [1.0]]))
+    LonAgent.ds_da = tf.constant(np.array([[-5.0], [-1.0], [1.0]]))
     LatPedController = LatPedPID(config_path=cfp,
                                  phi_trim=trim_state[6],
                                  lat_trim=trim_actions[2],
                                  pedal_trim=trim_actions[3])
     agents = (ColAgent, LonAgent)
     stats = []
+    weight_stats = {'t': [],
+                    'wci': [],
+                    'wco': [],
+                    'wai': [],
+                    'wao': []}
     reward = [None, None]
     done = False
     observation = trim_state.copy()
@@ -93,31 +98,33 @@ if __name__ == "__main__":
             ref[11] += 0.01
         else:
             ref = ref2
+            ref[7] = np.deg2rad(2)
         # Augment state with tracking errors
         augmented_states = (ColAgent.augment_state(observation, reference=ref),
                             LonAgent.augment_state(observation, reference=ref))
 
         lateral_cyclic, pedal = LatPedController(observation)
         # Get actions from actors
-        actions = [ColAgent.actor(augmented_states[0]).numpy().squeeze(),
-                   LonAgent.actor(augmented_states[1]).numpy().squeeze(),
-                   lateral_cyclic,
-                   pedal]
+        # actions = [ColAgent.actor(augmented_states[0]).numpy().squeeze(),
+        #            LonAgent.actor(augmented_states[1]).numpy().squeeze(),
+        #            lateral_cyclic,
+        #            pedal]
 
-        if 1.0 < env.t < 1.5:
-            actions[1] += 0.025
+
         # actions = [trim_actions[0],
         #            trim_actions[1],
         #            trim_actions[2],
         #            trim_actions[3],
         #            ]
 
-        # actions = [trim_actions[0],
-        #            trim_actions[1],
-        #            lateral_cyclic,
-        #            pedal
-        #            ]
+        actions = [trim_actions[0],
+                   trim_actions[1],
+                   lateral_cyclic,
+                   pedal
+                   ]
 
+        if 1.0 < env.t < 1.5:
+            actions[1] += 0.025
         # Take step in the environment
         next_observation, _, done = env.step(actions)
 
@@ -144,7 +151,7 @@ if __name__ == "__main__":
                       'x': observation[9],
                       'y': observation[10],
                       'z': observation[11],
-                      'ref': trim_state,
+                      'ref': ref.copy(),
                       'col': actions[0],
                       'lon': actions[1],
                       'lat': actions[2],
@@ -152,13 +159,23 @@ if __name__ == "__main__":
                       'r1': reward[0],
                       'r2': reward[1]})
 
-        if env.t > 100 or abs(observation[7]) > np.deg2rad(100) or abs(observation[6]) > np.deg2rad(100):
+        if (int(env.t / env.dt)) % 10 == 0:
+            weight_stats['t'].append(env.t)
+            weight_stats['wci'].append(ColAgent.critic.trainable_weights[0].numpy().ravel().copy())
+            weight_stats['wco'].append(ColAgent.critic.trainable_weights[1].numpy().ravel().copy())
+            weight_stats['wai'].append(ColAgent.actor.trainable_weights[0].numpy().ravel().copy())
+            weight_stats['wao'].append(ColAgent.actor.trainable_weights[1].numpy().ravel().copy())
+
+        if env.t > 120 or abs(observation[7]) > np.deg2rad(100) or abs(observation[6]) > np.deg2rad(100):
             done = True
 
         # Next step..
         observation = next_observation
 
     stats = pd.DataFrame(stats)
+    weights = {'wci': pd.DataFrame(data=weight_stats['wci'], index=weight_stats['t']),
+               'wco': pd.DataFrame(data=weight_stats['wco'], index=weight_stats['t']),
+               'wai': pd.DataFrame(data=weight_stats['wai'], index=weight_stats['t']),
+               'wao': pd.DataFrame(data=weight_stats['wao'], index=weight_stats['t'])}
+    #plot_neural_network_weights_2(weights)
     plot_stats_6dof(stats)
-
-

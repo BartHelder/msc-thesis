@@ -23,11 +23,13 @@ class TFActorCyclic(tf.keras.Model):
 
     def __init__(self, n_hidden, initializer, trim_value):
         super(TFActorCyclic, self).__init__()
-        self.trim_value = (trim_value - 0.5)
+        self.trim_value = tf.constant((trim_value - 0.5))
         self.h1 = kl.Dense(n_hidden,
                            activation='tanh',
-                           use_bias=False,
-                           kernel_initializer=initializer)
+                           kernel_initializer=initializer,
+                           use_bias=True,
+                           bias_initializer=initializer
+                           )
         self.a = kl.Dense(1,
                           activation='sigmoid',
                           kernel_initializer=initializer,
@@ -36,18 +38,19 @@ class TFActorCyclic(tf.keras.Model):
 
     def call(self, x):
         x = self.h1(x)
-        return self.trim_value + self.a(x)
+        return tf.add(self.trim_value, self.a(x))
 
 
 class TFActorColl(tf.keras.Model):
 
     def __init__(self, n_hidden, initializer, trim_value):
         super(TFActorColl, self).__init__()
-        self.trim_value = (trim_value - 0.5)
+        self.trim_value = tf.constant((trim_value - 0.5))
         self.h1 = kl.Dense(n_hidden,
                            activation='tanh',
+                           kernel_initializer=initializer,
                            use_bias=False,
-                           kernel_initializer=initializer)
+                           bias_initializer=initializer)
 
         self.a = kl.Dense(1,
                           activation='sigmoid',
@@ -57,7 +60,7 @@ class TFActorColl(tf.keras.Model):
 
     def call(self, x):
         x = self.h1(x)
-        return self.trim_value + self.a(x)
+        return tf.add(self.trim_value, self.a(x))
 
 
 class TFCritic(tf.keras.Model):
