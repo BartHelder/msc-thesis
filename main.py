@@ -107,7 +107,7 @@ if __name__ == "__main__":
         # Get actions from actors
         # actions = [ColAgent.actor(augmented_states[0]).numpy().squeeze(),
         #            LonAgent.actor(augmented_states[1]).numpy().squeeze(),
-        #            lateral_cyclic,
+        #            lateral_omgcyclic,
         #            pedal]
 
 

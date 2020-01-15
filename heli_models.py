@@ -734,28 +734,6 @@ class Helicopter6DOF:
 
     def trim(self, trim_speed, flight_path_angle, altitude):
 
-        # trim_state = np.array([17.9102446002439,        # u
-        #                        -0.0554589175754230,     # v
-        #                        1.84934948889972,        # w
-        #                        0,                       # p
-        #                        0,                       # q
-        #                        0,                       # r
-        #                        -0.0299793533511457,     # phi
-        #                        -0.00178194911194070,    # theta
-        #                        0,                       # psi
-        #                        0,                       # x
-        #                        0,                       # y
-        #                        -30.4800000000000,       # z
-        #                        0.0283940809698855,      # lambda MR
-        #                        0.0290051292102725,      # lambda tr
-        #                        44.5763725994022])       # omega (MR)
-        #
-        # coll = 59.6351908571695
-        # long = 51.0782502737835
-        # lat = 57.8619712989154
-        # ped = 43.4561660519032
-        # self.P_out = 205954.9108792998
-
         def trim_to_state(states, trimvar):
             states[0] = trimvar[0]
             states[1] = trimvar[1]
@@ -880,7 +858,7 @@ def plot_trim_settings():
 
 
 def test_6dof():
-    dt = 0.0200
+    dt = 0.02
     env = Helicopter6DOF(dt=dt)
     state, trim_controls = env.trim(trim_speed=35*0.5144, flight_path_angle=0, altitude=100*0.3048)
     stats = []
@@ -891,7 +869,6 @@ def test_6dof():
         else:
             action = trim_controls
         state, _, _ = env.step(actions=action)
-        env.t += dt
 
         stats.append({'t': env.t,
                       'u': state[0],
