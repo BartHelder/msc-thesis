@@ -226,27 +226,22 @@ class Helicopter3DOF:
     def get_ref(self):
         t = self.t + self.dt
         Kp, Ki, Kd = self.pid_weights
-        # if self.t < 60:
-        #     ref = 10
-        # elif 60 <= self.t < 90:
-        #     ref = max((self.t - 60), 0) * 0.33 + 10
-        # else:
+        ref = 15
+        # if self.t < 40:
+        #     ref = 0
+        # elif 40 <= self.t < 120:
         #     ref = 20
-        if self.t < 40:
-            ref = 0
-        elif 40 <= self.t < 120:
-            ref = 20
-        else:
-            ref = 30
+        # else:
+        #     ref = 30
         h_ref = 0
         if self.task is None:
             return 0
 
         elif self.task == 'sinusoid':
             x = np.pi*t / 40
-            #pitch_ref = np.deg2rad(ref/1.76 * (np.sin(x) + np.sin(2*x)))
-            pitch_ref = np.deg2rad(np.sin(2*x) * ref)
-            state_ref = np.array([np.nan, h_ref, np.nan, np.nan, pitch_ref, np.nan, np.nan])
+            pitch_ref = np.deg2rad(ref/1.76 * (np.sin(x) + np.sin(2*x)))
+            #pitch_ref = np.deg2rad(np.sin(2*x) * ref)
+            state_ref = np.array([np.nan, -h_ref, np.nan, np.nan, pitch_ref, np.nan, np.nan])
 
         elif self.task == 'velocity':
             u_err = self.ref - self.state[2]
@@ -797,10 +792,7 @@ class Helicopter6DOF:
             nn = nn + 1
 
             states, actions = trim_to_state(states, trimvar)
-            dot = self.calculate_state_derivatives(actions=actions,
-                                                   state=states,
-                                                   trimming=True)
-
+            dot = self.calculate_state_derivatives(actions=actions, state=states, trimming=True)
             f = np.hstack((dot[0:6], dot[9:]))
             f[6] -= V * np.cos(flight_path_angle)
             f[8] += V * np.sin(flight_path_angle)
@@ -812,10 +804,7 @@ class Helicopter6DOF:
                 perturb[i] = delta
                 trimvar = oldtrimvar + perturb
                 states, actions = trim_to_state(states, trimvar)
-                dot = self.calculate_state_derivatives(actions=actions,
-                                                       state=states,
-                                                       trimming=True)
-
+                dot = self.calculate_state_derivatives(actions=actions, state=states, trimming=True)
                 fnew = np.hstack((dot[0:6], dot[9:]))
                 fnew[6] -= V * np.cos(flight_path_angle)
                 fnew[8] += V * np.sin(flight_path_angle)
@@ -899,7 +888,6 @@ def test_6dof():
     plt.plot(stats['t'], stats_matlab[5], 'g--', label='rm')
     plt.legend()
     plt.show()
-
 
 
 if __name__ == "__main__":

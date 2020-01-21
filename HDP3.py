@@ -336,7 +336,6 @@ class HDPAgentNumpySplit:
             # TD target remains fixed per time-step to avoid oscillations
             td_target = reward + self.gamma * _critic(next_aug)[0]
 
-
             # Update models x times per timestep
             for j in range(n_updates):
 

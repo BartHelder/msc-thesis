@@ -9,42 +9,43 @@ import time
 import datetime
 import json
 import pickle as pkl
+import itertools
 
 from heli_models import Helicopter3DOF
 from plotting import plot_neural_network_weights_2, plot_stats_3dof, plot_policy_function
-
+from model import RecursiveLeastSquares
 tf.keras.backend.set_floatx('float64')
+
 
 def scaled_tanh(scale, x):
     return tf.tanh(x) * scale
 
 
-class TFActorCyclic(tf.keras.Model):
+class TFActor3DOF(tf.keras.Model):
 
-    def __init__(self, n_hidden, initializer, trim_value):
-        super(TFActorCyclic, self).__init__()
-        self.trim_value = tf.constant((trim_value - 0.5))
+    def __init__(self, n_hidden, initializer, action_scaling=15, offset=0):
+        super(TFActor3DOF, self).__init__()
+        self.action_scaling = np.deg2rad(action_scaling)
+        self.offset = np.deg2rad(offset)
+
         self.h1 = kl.Dense(n_hidden,
                            activation='tanh',
-                           kernel_initializer=initializer,
-                           use_bias=True,
-                           bias_initializer=initializer
-                           )
+                           use_bias=False,
+                           kernel_initializer=initializer)
         self.a = kl.Dense(1,
-                          activation='sigmoid',
+                          activation=partial(scaled_tanh, self.action_scaling),
                           kernel_initializer=initializer,
-                          use_bias=False,
-                          bias_initializer=tf.initializers.constant(value=(trim_value - 0.5)))
+                          use_bias=False)
 
     def call(self, x):
         x = self.h1(x)
-        return tf.add(self.trim_value, self.a(x))
+        return tf.add(self.offset, self.a(x))
 
 
-class TFActorColl(tf.keras.Model):
+class TFActor6DOF(tf.keras.Model):
 
     def __init__(self, n_hidden, initializer, trim_value):
-        super(TFActorColl, self).__init__()
+        super(TFActor6DOF, self).__init__()
         self.trim_value = tf.constant((trim_value - 0.5))
         self.h1 = kl.Dense(n_hidden,
                            activation='tanh',
@@ -263,15 +264,10 @@ class Agent:
 
     def __init__(self,
                  config,
-                 control_channel,
-                 trim_value):
-
-        if control_channel == "cyclic_lon":
-            actor = TFActorCyclic
-        elif control_channel == 'collective':
-            actor = TFActorColl
-        else:
-            raise NotImplementedError("Unknown actor type")
+                 actor,
+                 actor_kwargs,
+                 control_channel
+                 ):
 
         with open(config, "r") as f:
             c = json.load(f)
@@ -279,8 +275,8 @@ class Agent:
         self.control_channel = control_channel
         initializer = tf.initializers.TruncatedNormal(mean=0.0, stddev=conf["weights_stddev"])
         self.actor = actor(n_hidden=conf["n_hidden"],
-                           trim_value=trim_value,
-                           initializer=initializer)
+                           initializer=initializer,
+                           **actor_kwargs)
         self.critic = TFCritic(n_hidden=conf["n_hidden"], initializer=initializer)
         self.optimizer_actor = ko.SGD(lr=conf["lr_actor"],
                                 nesterov=bool(conf["use_nesterov_momentum"]),
@@ -313,15 +309,15 @@ class Agent:
         reward = np.clip(reward, -5, 0)
         return reward
 
-    def set_ds_da(self, env):
-        mapping = {'cyclic_lon': 0,
-                   'collective': 1,
+    def set_ds_da(self, rls_model):
+        mapping = {'collective': 0,
+                   'cyclic_lon': 1,
                    'cyclic_lat': 2,
                    'directional': 3}
 
-        ds_da = env.get_environment_transition_function()[:, mapping[self.control_channel]]
-        state_transition = ds_da[self.actor_critic_states, :]
-        tracking_error = -ds_da[self.tracked_state, :].reshape((1, 1))  # if the state increases, tracking error decreases proportionally
+        ds_da = rls_model.gradient_action()[:, mapping[self.control_channel]]
+        state_transition = ds_da[self.actor_critic_states]
+        tracking_error = -ds_da[self.tracked_state].reshape((1, 1))  # if the state increases, tracking error decreases proportionally
         dsda = np.append(state_transition, tracking_error, axis=0)
         self.ds_da = tf.constant(dsda)
 
@@ -393,13 +389,105 @@ def train_save_pitch(seed, save_path, config_path="config.json"):
 
 if __name__ == "__main__":
 
-    dt = 0.02  # s
-    tf.random.set_seed(666)
+    tf.random.set_seed(1)
+    cfp = "config_3dof.json"
 
-    cfp = "config.json"
+    env = Helicopter3DOF()
+    env.setup_from_config(task="sinusoid", config_path=cfp)
+    rls_kwargs = {'state_size': 7, 'action_size': 2, 'gamma': 0.995, 'covariance': 10**8, 'constant': False}
+    RLS = RecursiveLeastSquares(**rls_kwargs)
+    CollectiveAgent = Agent(cfp, actor=TFActor3DOF, actor_kwargs={'offset': 4, 'action_scaling': 4}, control_channel='collective')
+    CollectiveAgent.set_ds_da(RLS)
+    CyclicAgent = Agent(cfp, actor=TFActor3DOF, actor_kwargs={'offset': 0, 'action_scaling': 10}, control_channel="cyclic_lon")
+    CyclicAgent.set_ds_da(RLS)
+    agents = (CollectiveAgent, CyclicAgent)
+    observation, trim_actions = env.reset(v_initial=20)
+    stats = []
+    reward = [None, None]
+    weight_stats = {'t': [], 'wci': [], 'wco': [], 'wai': [], 'wao': []}
+    rls_stats = {'t': [0],
+                 'wa_col': [RLS.gradient_action()[:6, 0].ravel().copy()],
+                 'wa_cyc': [RLS.gradient_action()[:6, 1].ravel().copy()],
+                 'ws': [RLS.gradient_state().ravel().copy()]}
 
-    env = Helicopter3DOF(t_max=120, dt=dt)
-    env.setup_from_config(task="stop_over_point", config_path=cfp)
-    col = CollectivePID(dt=dt, h_ref=0, derivative_gain=0.3)
-    agent = HDPAgentTF(collective_controller=col, config_path=cfp)
+    done = False
+    while not done:
 
+        # Get new reference
+        reference = env.get_ref()
+
+        # Augment state with tracking errors
+        augmented_states = (CollectiveAgent.augment_state(observation, reference),
+                            CyclicAgent.augment_state(observation, reference))
+
+        # Get actions from actors
+        actions = np.array([CollectiveAgent.actor(augmented_states[0]).numpy().squeeze(),
+                            CyclicAgent.actor(augmented_states[1]).numpy().squeeze()])
+
+        # Take step in the environment
+        next_observation, _, done = env.step(actions)
+
+        # Update RLS model
+        RLS.update(state=observation, action=actions, next_state=next_observation)
+
+        # Update action gradients
+        CollectiveAgent.set_ds_da(RLS)
+        CyclicAgent.set_ds_da(RLS)
+
+        # Get rewards, update actor and critic networks
+        for agent, count in zip(agents, itertools.count()):
+            reward[count] = agent.get_reward(next_observation, reference)
+            next_augmented_state = agent.augment_state(next_observation, reference)
+            td_target = reward[count] + agent.gamma * agent.critic(next_augmented_state)
+            agent.update_networks(td_target, augmented_states[count], n_updates=1)
+            if count == 1:
+                break
+
+        # Log data
+        stats.append({'t': env.t,
+                      'x': observation[0],
+                      'z': observation[1],
+                      'u': observation[2],
+                      'w': observation[3],
+                      'theta': observation[4],
+                      'q': observation[5],
+                      'reference': env.get_ref(),
+                      'collective': actions[0],
+                      'cyclic': actions[1],
+                      'r1': reward[0],
+                      'r2': reward[1]})
+
+        rls_stats['t'].append(env.t)
+        rls_stats['ws'].append(RLS.gradient_state().ravel())
+        rls_stats['wa_col'].append(RLS.gradient_action()[:6, 0].ravel())
+        rls_stats['wa_cyc'].append(RLS.gradient_action()[:6, 1].ravel())
+
+        if env.t > 10:
+            done = True
+
+        # Next step..
+        observation = next_observation
+
+    stats = pd.DataFrame(stats)
+    plot_stats_3dof(stats)
+
+    wa_col = pd.DataFrame(data=rls_stats['wa_col'], index=rls_stats['t'])
+    wa_cyc = pd.DataFrame(data=rls_stats['wa_cyc'], index=rls_stats['t'])
+
+    ws = pd.DataFrame(data=rls_stats['ws'], index=rls_stats['t'])
+    from matplotlib import pyplot as plt
+    import seaborn as sns
+
+    plt.figure()
+    sns.lineplot(data=wa_col, dashes=False, legend=False, palette=sns.color_palette("hls", len(wa_col.columns)))
+    plt.xlabel('Time [s]')
+    plt.ylabel('Gradient size [-]')
+    plt.title('iRLS Collective gradients')
+    plt.show()
+
+    plt.figure()
+    sns.lineplot(data=wa_cyc, dashes=True, legend=False, palette=sns.color_palette("hls", len(wa_cyc.columns)))
+    plt.xlabel('Time [s]')
+    plt.ylabel('Gradient size [-]')
+    plt.title('iRLS Cyclic gradients')
+    plt.show()

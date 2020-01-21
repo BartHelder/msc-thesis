@@ -1,11 +1,11 @@
-{ "dt": 0.02,
+{ "dt": 0.01,
   "agent":
     {"cyclic_lon":
       {"action_scaling": 15,
       "gamma": 0.6,
       "lr_actor": 0.1,
       "lr_critic": 0.05,
-      "n_hidden": 6,
+      "n_hidden": 8,
       "weights_stddev": 0.04,
       "use_nesterov_momentum": 0,
       "momentum": 0.0,
@@ -15,9 +15,9 @@
     "collective":
       {"action_scaling": 5,
       "gamma": 0.5,
-      "lr_actor": 0.1,
+      "lr_actor": 0.05,
       "lr_critic": 0.05,
-      "n_hidden": 8,
+      "n_hidden": 6,
       "weights_stddev": 0.04,
       "use_nesterov_momentum": 0,
       "momentum": 0.0,
