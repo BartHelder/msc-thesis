@@ -6,9 +6,9 @@ import json
 import pandas as pd
 from heli_models import Helicopter6DOF
 from plotting import plot_neural_network_weights_2, plot_stats_6dof, plot_policy_function
-from HDP_tf import Agent
+from HDP_tf import Agent, TFActor6DOF
 from PID import LatPedPID
-from model import IncrementalRLS
+from model import RecursiveLeastSquares
 
 
 
@@ -19,10 +19,8 @@ cfp = "config_6dof.json"
 env = Helicopter6DOF()
 trim_state, trim_actions = env.trim(trim_speed=20, flight_path_angle=0, altitude=0)
 
-ColAgent = Agent(cfp, control_channel="collective", trim_value=trim_actions[0])
-ColAgent.ds_da = tf.constant(np.array([[-0.8], [0.8]]))
-LonAgent = Agent(cfp, control_channel="cyclic_lon", trim_value=trim_actions[1])
-LonAgent.ds_da = tf.constant(np.array([[-5.0], [-1.0], [1.0]]))
+ColAgent = Agent(cfp, actor=TFActor6DOF, control_channel="collective", actor_kwargs={})
+LonAgent = Agent(cfp, actor=TFActor6DOF, control_channel="cyclic_lon", actor_kwargs={})
 LatPedController = LatPedPID(config_path=cfp,
                              phi_trim=trim_state[6],
                              lat_trim=trim_actions[2],
@@ -37,29 +35,32 @@ weight_stats = {'t': [],
 reward = [None, None]
 done = False
 observation = trim_state.copy()
-ref2 = trim_state.copy()
+
+excitation = np.zeros((1000, 2))
+for j in range(400):
+    excitation[j, 0] = -np.sin(np.pi*j/50)
+    excitation[j+400, 1] = np.sin(2*np.pi*j/50) * 2
+excitation = np.deg2rad(excitation)
+excitation_phase = True
+
+rls_kwargs = {'state_size': len(observation), 'action_size': 4, 'gamma': 1, 'covariance': 10**8, 'constant': False}
+RLS = RecursiveLeastSquares(**rls_kwargs)
 
 while not done:
 
     # Get new reference
-    if env.t < 50:
-        ref = trim_state
-    elif 50 <= env.t < 80:
-        ref = ref2
-        ref[11] += 0.01
-    else:
-        ref = ref2
-        ref[7] = np.deg2rad(2)
+
+
     # Augment state with tracking errors
     augmented_states = (ColAgent.augment_state(observation, reference=ref),
                         LonAgent.augment_state(observation, reference=ref))
 
     lateral_cyclic, pedal = LatPedController(observation)
     # Get actions from actors
-    # actions = [ColAgent.actor(augmented_states[0]).numpy().squeeze(),
-    #            LonAgent.actor(augmented_states[1]).numpy().squeeze(),
-    #            lateral_omgcyclic,
-    #            pedal]
+    actions = [ColAgent.actor(augmented_states[0]).numpy().squeeze(),
+               LonAgent.actor(augmented_states[1]).numpy().squeeze(),
+               lateral_cyclic,
+               pedal]
 
 
     # actions = [trim_actions[0],
@@ -68,14 +69,13 @@ while not done:
     #            trim_actions[3],
     #            ]
 
-    actions = [trim_actions[0],
-               trim_actions[1],
-               lateral_cyclic,
-               pedal
-               ]
+    # actions = [trim_actions[0],
+    #            trim_actions[1],
+    #            lateral_cyclic,
+    #            pedal
+    #            ]
 
-    if 1.0 < env.t < 1.5:
-        actions[1] += 0.025
+
     # Take step in the environment
     next_observation, _, done = env.step(actions)
 

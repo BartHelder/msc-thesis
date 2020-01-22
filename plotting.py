@@ -169,7 +169,7 @@ def plot_stats_3dof(df: pd.DataFrame, results_only=False, color_palette=None):
     ax.plot(df['t'], np.rad2deg(refs[:, 4]), c=cp[3], ls='--')
     ax.plot(df['t'], df['theta'] * 180 / np.pi, c=cp[0])
     ax.set_xticklabels([])
-    plt.ylabel('Pitch angle [deg]')
+    plt.ylabel('theta [deg]')
     ax = fig1.add_subplot(414)
     ax.plot(df['t'], df['r2'], c=cp[0])
     plt.ylabel('Reward [-]')

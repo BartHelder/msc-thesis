@@ -44,9 +44,8 @@ class TFActor3DOF(tf.keras.Model):
 
 class TFActor6DOF(tf.keras.Model):
 
-    def __init__(self, n_hidden, initializer, trim_value):
+    def __init__(self, n_hidden, initializer):
         super(TFActor6DOF, self).__init__()
-        self.trim_value = tf.constant((trim_value - 0.5))
         self.h1 = kl.Dense(n_hidden,
                            activation='tanh',
                            kernel_initializer=initializer,
@@ -57,11 +56,11 @@ class TFActor6DOF(tf.keras.Model):
                           activation='sigmoid',
                           kernel_initializer=initializer,
                           use_bias=False,
-                          bias_initializer=tf.initializers.constant(value=(trim_value - 0.5)))
+                          )
 
     def call(self, x):
         x = self.h1(x)
-        return tf.add(self.trim_value, self.a(x))
+        return self.a(x)
 
 
 class TFCritic(tf.keras.Model):
@@ -306,7 +305,7 @@ class Agent:
     def get_reward(self, observation, reference):
         tracking_error = reference[self.tracked_state] - observation[self.tracked_state]
         reward = -tracking_error**2 * self.reward_weight
-        reward = np.clip(reward, -5, 0)
+        reward = np.clip(reward, -10, 0)
         return reward
 
     def set_ds_da(self, rls_model):
@@ -390,19 +389,20 @@ def train_save_pitch(seed, save_path, config_path="config.json"):
 
 if __name__ == "__main__":
 
-    tf.random.set_seed(2)
+    tf.random.set_seed(3)
     cfp = "config_3dof.json"
 
     env = Helicopter3DOF()
     env.setup_from_config(task="sinusoid", config_path=cfp)
-    rls_kwargs = {'state_size': 7, 'action_size': 2, 'gamma': 0.995, 'covariance': 10**8, 'constant': False}
+    observation, trim_actions = env.reset(v_initial=20)
+
+    rls_kwargs = {'state_size': 7, 'action_size': 2, 'gamma': 1, 'covariance': 10**8, 'constant': False}
     RLS = RecursiveLeastSquares(**rls_kwargs)
-    CollectiveAgent = Agent(cfp, actor=TFActor3DOF, actor_kwargs={'offset': 0, 'action_scaling': 5}, control_channel='collective')
+    CollectiveAgent = Agent(cfp, actor=TFActor3DOF, actor_kwargs={'offset': 0, 'action_scaling': np.rad2deg(trim_actions[0])}, control_channel='collective')
     CollectiveAgent.set_ds_da(RLS)
     CyclicAgent = Agent(cfp, actor=TFActor3DOF, actor_kwargs={'offset': 0, 'action_scaling': 10}, control_channel="cyclic_lon")
     CyclicAgent.set_ds_da(RLS)
     agents = (CollectiveAgent, CyclicAgent)
-    observation, trim_actions = env.reset(v_initial=20)
     stats = []
     reward = [None, None]
     weight_stats = {'t': [], 'wci': [], 'wco': [], 'wai': [], 'wao': []}
@@ -435,8 +435,8 @@ if __name__ == "__main__":
     #     excitation[j + 400, 1] = -8 + j / 50
 
     for j in range(400):
-        excitation[j, 0] = np.sin(j/50)
-        excitation[j+400, 1] = np.sin(j/50)
+        excitation[j, 0] = -np.sin(np.pi*j/50)
+        excitation[j+400, 1] = np.sin(2*np.pi*j/50) * 2
 
     excitation = np.deg2rad(excitation)
     excitation_phase = True
@@ -460,7 +460,7 @@ if __name__ == "__main__":
             actions += excitation[step]
 
         actions = actions + trim_actions
-
+        actions = np.clip(actions, np.deg2rad([0, -15]), np.deg2rad([10, 15]))
         # Take step in the environment
         next_observation, _, done = env.step(actions)
 
