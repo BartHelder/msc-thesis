@@ -117,7 +117,7 @@ while not done:
         weight_stats['wai'].append(ColAgent.actor.trainable_weights[0].numpy().ravel().copy())
         weight_stats['wao'].append(ColAgent.actor.trainable_weights[1].numpy().ravel().copy())
 
-    if env.t > 180 or abs(observation[7]) > np.deg2rad(100) or abs(observation[6]) > np.deg2rad(100):
+    if env.t > 120 or abs(observation[7]) > np.deg2rad(100) or abs(observation[6]) > np.deg2rad(100):
         done = True
 
     # Next step..

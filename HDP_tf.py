@@ -323,7 +323,7 @@ class Agent:
 
         return dsda
 
-    @tf.function
+    #@tf.function
     def update_networks(self, td_target, s_aug, n_updates=2):
         """
         :param x:
@@ -344,6 +344,7 @@ class Agent:
             scale = tf.squeeze(tf.multiply(value, tf.matmul(dV_ds, self.ds_da)))
             da_dwa = tape.gradient(action, self.actor.trainable_variables)
             gradient_actor = [tf.multiply(scale, x) for x in da_dwa]
+            #print(max(gradient_actor[0].numpy().ravel()))
             self.optimizer_actor.apply_gradients(zip(gradient_actor, self.actor.trainable_variables))
 
     def get_weights(self):
@@ -389,14 +390,14 @@ def train_save_pitch(seed, save_path, config_path="config.json"):
 
 if __name__ == "__main__":
 
-    tf.random.set_seed(1)
+    tf.random.set_seed(2)
     cfp = "config_3dof.json"
 
     env = Helicopter3DOF()
     env.setup_from_config(task="sinusoid", config_path=cfp)
     rls_kwargs = {'state_size': 7, 'action_size': 2, 'gamma': 0.995, 'covariance': 10**8, 'constant': False}
     RLS = RecursiveLeastSquares(**rls_kwargs)
-    CollectiveAgent = Agent(cfp, actor=TFActor3DOF, actor_kwargs={'offset': 4, 'action_scaling': 4}, control_channel='collective')
+    CollectiveAgent = Agent(cfp, actor=TFActor3DOF, actor_kwargs={'offset': 0, 'action_scaling': 5}, control_channel='collective')
     CollectiveAgent.set_ds_da(RLS)
     CyclicAgent = Agent(cfp, actor=TFActor3DOF, actor_kwargs={'offset': 0, 'action_scaling': 10}, control_channel="cyclic_lon")
     CyclicAgent.set_ds_da(RLS)
@@ -410,7 +411,37 @@ if __name__ == "__main__":
                  'wa_cyc': [RLS.gradient_action()[:6, 1].ravel().copy()],
                  'ws': [RLS.gradient_state().ravel().copy()]}
 
+    excitation = np.zeros((1000, 2))
+    # for j in range(50):
+    #     excitation[j, 0] = j / 50
+    # for j in range(50, 150, 1):
+    #     excitation[j, 0] = 2 - j / 50
+    # for j in range(150, 250, 1):
+    #     excitation[j, 0] = -4 + j / 50
+    # for j in range(250, 350, 1):
+    #     excitation[j, 0] = 6 - j / 50
+    # for j in range(350, 400, 1):
+    #     excitation[j, 0] = -8 + j / 50
+    #
+    # for j in range(50):
+    #     excitation[j + 400, 1] = j / 50
+    # for j in range(50, 150, 1):
+    #     excitation[j + 400, 1] = 2 - j / 50
+    # for j in range(150, 250, 1):
+    #     excitation[j + 400, 1] = -4 + j / 50
+    # for j in range(250, 350, 1):
+    #     excitation[j + 400, 1] = 6 - j / 50
+    # for j in range(350, 400, 1):
+    #     excitation[j + 400, 1] = -8 + j / 50
+
+    for j in range(400):
+        excitation[j, 0] = np.sin(j/50)
+        excitation[j+400, 1] = np.sin(j/50)
+
+    excitation = np.deg2rad(excitation)
+    excitation_phase = True
     done = False
+    step = 0
     while not done:
 
         # Get new reference
@@ -423,6 +454,12 @@ if __name__ == "__main__":
         # Get actions from actors
         actions = np.array([CollectiveAgent.actor(augmented_states[0]).numpy().squeeze(),
                             CyclicAgent.actor(augmented_states[1]).numpy().squeeze()])
+
+        # In excitation phase add values to actions
+        if excitation_phase:
+            actions += excitation[step]
+
+        actions = actions + trim_actions
 
         # Take step in the environment
         next_observation, _, done = env.step(actions)
@@ -462,31 +499,34 @@ if __name__ == "__main__":
         rls_stats['wa_col'].append(RLS.gradient_action()[:6, 0].ravel())
         rls_stats['wa_cyc'].append(RLS.gradient_action()[:6, 1].ravel())
 
-        if env.t > 10:
+        if env.t > 16:
+            excitation_phase = False
+        if env.t > 100:
             done = True
 
         # Next step..
         observation = next_observation
-
+        step += 1
     stats = pd.DataFrame(stats)
     plot_stats_3dof(stats)
 
-    wa_col = pd.DataFrame(data=rls_stats['wa_col'], index=rls_stats['t'])
-    wa_cyc = pd.DataFrame(data=rls_stats['wa_cyc'], index=rls_stats['t'])
-
+    wa_col = pd.DataFrame(data=rls_stats['wa_col'], index=rls_stats['t'], columns = ['ex', 'z', 'u', 'w', 'pitch', 'q'])
+    wa_cyc = pd.DataFrame(data=rls_stats['wa_cyc'], index=rls_stats['t'], columns = ['ex', 'z', 'u', 'w', 'pitch', 'q'])
+    wa_col = wa_col.drop(columns=['ex', 'u', 'pitch', 'q'])
+    wa_cyc = wa_cyc.drop(columns=['ex', 'z', 'u', 'w'])
     ws = pd.DataFrame(data=rls_stats['ws'], index=rls_stats['t'])
     from matplotlib import pyplot as plt
     import seaborn as sns
 
     plt.figure()
-    sns.lineplot(data=wa_col, dashes=False, legend=False, palette=sns.color_palette("hls", len(wa_col.columns)))
+    sns.lineplot(data=wa_col, dashes=False, legend='full', palette=sns.color_palette("hls", len(wa_col.columns)))
     plt.xlabel('Time [s]')
     plt.ylabel('Gradient size [-]')
     plt.title('iRLS Collective gradients')
     plt.show()
 
     plt.figure()
-    sns.lineplot(data=wa_cyc, dashes=True, legend=False, palette=sns.color_palette("hls", len(wa_cyc.columns)))
+    sns.lineplot(data=wa_cyc, dashes=True, legend='full', palette=sns.color_palette("hls", len(wa_cyc.columns)))
     plt.xlabel('Time [s]')
     plt.ylabel('Gradient size [-]')
     plt.title('iRLS Cyclic gradients')

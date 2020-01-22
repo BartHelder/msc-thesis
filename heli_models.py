@@ -164,7 +164,7 @@ class Helicopter3DOF:
 
         ref = self.get_ref()
 
-        collective, cyclic_pitch = actions
+        collective, cyclic_pitch = np.clip(actions, np.deg2rad([0, -15]), np.deg2rad([10, 15]))
         x, z, u, w, pitch, q, lambda_i = self.state
         q_diml = q / self.omega  # dimensionless pitch rate
         v_diml = np.sqrt(u**2 + w**2) / self.v_tip  # dimensionless speed
@@ -227,21 +227,21 @@ class Helicopter3DOF:
         t = self.t + self.dt
         Kp, Ki, Kd = self.pid_weights
         ref = 15
-        # if self.t < 40:
-        #     ref = 0
-        # elif 40 <= self.t < 120:
-        #     ref = 20
-        # else:
-        #     ref = 30
+        if self.t < 20:
+            ref = 0
+        elif 20 <= self.t < 60:
+            ref = 10
+        else:
+            ref = 10
         h_ref = 0
         if self.task is None:
             return 0
 
         elif self.task == 'sinusoid':
-            x = np.pi*t / 40
-            pitch_ref = np.deg2rad(ref/1.76 * (np.sin(x) + np.sin(2*x)))
-            #pitch_ref = np.deg2rad(np.sin(2*x) * ref)
-            state_ref = np.array([np.nan, -h_ref, np.nan, np.nan, pitch_ref, np.nan, np.nan])
+            x = np.pi*t / 5
+            #pitch_ref = np.deg2rad(ref/1.76 * (np.sin(x) + np.sin(2*x)))
+            q_ref = np.deg2rad(np.sin(2*x) * ref)
+            state_ref = np.array([np.nan, -h_ref, np.nan, np.nan, np.nan, q_ref, np.nan])
 
         elif self.task == 'velocity':
             u_err = self.ref - self.state[2]
@@ -282,7 +282,7 @@ class Helicopter3DOF:
         self.task = task
         self.dt = config["dt"]
         self._set_pid_weights(config)
-        self.reset(v_initial=config["training"]["trim_speed"])
+        return self.reset(v_initial=config["training"]["trim_speed"])
 
     def _set_pid_weights(self, config):
         params = config["env"]["tasks"][self.task]
