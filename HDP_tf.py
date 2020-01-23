@@ -223,7 +223,7 @@ class HDPAgentTF:
             print("Episode run time:", time.time() - t1, "seconds")
         return episode_reward, episode_stats, weights
 
-    @tf.function
+    #@tf.function
     def update_networks(self, td_target, s_aug1, s_aug2, ds_da, n_updates=2):
 
         for _ in tf.range(tf.constant(n_updates)):
@@ -305,7 +305,7 @@ class Agent:
     def get_reward(self, observation, reference):
         tracking_error = reference[self.tracked_state] - observation[self.tracked_state]
         reward = -tracking_error**2 * self.reward_weight
-        reward = np.clip(reward, -10, 0)
+        reward = np.clip(reward, -5, 0)
         return reward
 
     def set_ds_da(self, rls_model):
@@ -343,7 +343,8 @@ class Agent:
             scale = tf.squeeze(tf.multiply(value, tf.matmul(dV_ds, self.ds_da)))
             da_dwa = tape.gradient(action, self.actor.trainable_variables)
             gradient_actor = [tf.multiply(scale, x) for x in da_dwa]
-            #print(max(gradient_actor[0].numpy().ravel()))
+            #print(self.control_channel)
+            # print(max(abs(gradient_actor[0].numpy().ravel())))
             self.optimizer_actor.apply_gradients(zip(gradient_actor, self.actor.trainable_variables))
 
     def get_weights(self):

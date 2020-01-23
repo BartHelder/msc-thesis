@@ -247,10 +247,10 @@ def plot_stats_6dof(df: pd.DataFrame, results_only=False, color_palette=None):
     plt.ylabel('Reward [-]')
     ax.set_xticklabels([])
     ax = fig1.add_subplot(413)
-    ax.plot(df['t'], np.rad2deg(refs[:, 7]), c=cp[3], ls='--')
-    ax.plot(df['t'], df['theta'] * 180 / np.pi, c=cp[0])
+    ax.plot(df['t'], np.rad2deg(refs[:, 4]), c=cp[3], ls='--')
+    ax.plot(df['t'], df['q'] * 180 / np.pi, c=cp[0])
     ax.set_xticklabels([])
-    plt.ylabel('Pitch angle [deg]')
+    plt.ylabel('q [deg/s]')
     ax = fig1.add_subplot(414)
     ax.plot(df['t'], df['r2'], c=cp[0])
     plt.ylabel('Reward [-]')
@@ -305,9 +305,9 @@ def plot_stats_6dof(df: pd.DataFrame, results_only=False, color_palette=None):
         plt.ylabel('w [m/s]')
         ax.set_xticklabels([])
         ax = fig3.add_subplot(515)
-        ax.plot(df['t'], np.rad2deg(refs[:, 4]), c=cp[3], ls='--', label='reference')
-        ax.plot(df['t'], df['q'] * 180 / np.pi, c=cp[0])
-        plt.ylabel('q [deg/s]')
+        ax.plot(df['t'], np.rad2deg(refs[:, 7]), c=cp[3], ls='--', label='reference')
+        ax.plot(df['t'], df['theta'] * 180 / np.pi, c=cp[0])
+        plt.ylabel('theta [deg]')
         plt.xlabel('Time [s]')
 
         plt.show()
@@ -438,6 +438,31 @@ def compare_runs(runs_dict):
     plt.xlabel('k_beta [-]')
     plt.ylabel('Episode rewards [-]')
 
+    plt.show()
+
+
+def plot_rls_stats(rls_stats):
+    columns = ['u', 'v', 'w', 'p', 'q', 'r', 'phi', 'theta', 'psi', 'x', 'y', 'z']
+    scols = set(columns)
+    dropcoll = scols.difference({'w', 'z'})
+    dropcyc = scols.difference({'theta', 'q'})
+    wa_col = pd.DataFrame(data=rls_stats['wa_col'], index=rls_stats['t'], columns=columns)
+    wa_cyc = pd.DataFrame(data=rls_stats['wa_cyc'], index=rls_stats['t'], columns=columns)
+    wa_col = wa_col.drop(columns=dropcoll)
+    wa_cyc = wa_cyc.drop(columns=dropcyc)
+
+    plt.figure()
+    sns.lineplot(data=wa_col, dashes=False, legend='full', palette=sns.color_palette("hls", len(wa_col.columns)))
+    plt.xlabel('Time [s]')
+    plt.ylabel('Gradient size [-]')
+    plt.title('iRLS Collective gradients')
+    plt.show()
+
+    plt.figure()
+    sns.lineplot(data=wa_cyc, dashes=True, legend='full', palette=sns.color_palette("hls", len(wa_cyc.columns)))
+    plt.xlabel('Time [s]')
+    plt.ylabel('Gradient size [-]')
+    plt.title('iRLS Cyclic gradients')
     plt.show()
 
 
