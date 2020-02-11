@@ -2,10 +2,10 @@
   "agent":
     {"cyclic_lon":
       {"action_scaling": 15,
-      "gamma": 0.5,
-      "lr_actor": 0.05,
-      "lr_critic": 0.05,
-      "n_hidden": 7,
+      "discount_factor": 0.6,
+      "lr_actor": 0.1,
+      "lr_critic": 0.1,
+      "n_hidden": 6,
       "weights_stddev": 0.4,
       "use_nesterov_momentum": 0,
       "momentum": 0.0,
@@ -14,14 +14,14 @@
       "actor_critic_states": [7] },
     "collective":
       {"action_scaling": 5,
-      "gamma": 0.6,
+      "discount_factor": 0.9,
       "lr_actor": 0.1,
       "lr_critic": 0.1,
       "n_hidden": 6,
-      "weights_stddev": 0.1,
+      "weights_stddev": 0.4,
       "use_nesterov_momentum": 0,
       "momentum": 0.1,
-      "reward_weight": 0.05,
+      "reward_weight": 0.01,
       "tracked_state": 11,
       "actor_critic_states": [2] },
     "lateralPID":

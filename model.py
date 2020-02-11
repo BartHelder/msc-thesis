@@ -133,7 +133,7 @@ class RecursiveLeastSquares:
 
     def gradient_action(self):
         gradient = self.W[self.state_size:self.nb_vars, :].T
-        return gradient[:, :, None]
+        return gradient
 
     def reset(self):
         " Reset parameters and covariance. Check if last state is  "

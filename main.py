@@ -6,22 +6,21 @@ import json
 import pandas as pd
 from heli_models import Helicopter6DOF
 from plotting import plot_neural_network_weights_2, plot_stats_6dof, plot_policy_function, plot_rls_stats
-from HDP_tf import Agent, TFActor6DOF
+from agents import HDPAgent, DHPAgent, HDPCritic, TFActor6DOF
 from PID import LatPedPID
 from model import RecursiveLeastSquares
 
 
-
 save_weights = False
-tf.random.set_seed(2)
+tf.random.set_seed(1)
 cfp = "config_6dof.json"
 
 env = Helicopter6DOF()
 trim_state, trim_actions = env.trim(trim_speed=20, flight_path_angle=0, altitude=0)
 
 # Create controllers
-ColAgent = Agent(cfp, actor=TFActor6DOF, control_channel="collective", actor_kwargs={})
-LonAgent = Agent(cfp, actor=TFActor6DOF, control_channel="cyclic_lon", actor_kwargs={})
+ColAgent = DHPAgent(cfp, actor=TFActor6DOF, control_channel="collective")
+LonAgent = DHPAgent(cfp, actor=TFActor6DOF, control_channel="cyclic_lon")
 LatPedController = LatPedPID(config_path=cfp,
                              phi_trim=trim_state[6],
                              lat_trim=trim_actions[2],
@@ -54,10 +53,9 @@ for j in range(400):
     excitation[j+400, 1] = np.sin(np.pi *j/50) * 0.05
 excitation_phase = True
 
-
 ref = np.nan * np.ones_like(observation)
 step = 0
-
+update_agent = [False, True]
 while not done:
 
     # Get new reference
@@ -78,9 +76,11 @@ while not done:
                         LonAgent.augment_state(observation, reference=ref))
 
     lateral_cyclic, pedal = LatPedController(observation)
+
     # Get actions from actors
     actions = [ColAgent.actor(augmented_states[0]).numpy().squeeze(),
                LonAgent.actor(augmented_states[1]).numpy().squeeze(),
+               #trim_actions[1],
                lateral_cyclic,
                pedal]
 
@@ -97,18 +97,20 @@ while not done:
     # Update RLS model
     RLS.update(state=observation, action=actions, next_state=next_observation)
 
-    # Update action gradients
-    ColAgent.set_ds_da(RLS)
-    LonAgent.set_ds_da(RLS)
 
     # Get rewards, update actor and critic networks
     for agent, count in zip(agents, itertools.count()):
-        reward[count] = agent.get_reward(next_observation, ref)
+        reward[count], dr_ds = agent.get_reward(next_observation, ref)
         next_augmented_state = agent.augment_state(next_observation, ref)
-        td_target = reward[count] + agent.gamma * agent.critic(next_augmented_state)
-        agent.update_networks(td_target, augmented_states[count], n_updates=2)
-        if count == 1:
-            break
+        if update_agent[count]:
+            agent.update_networks(s1=augmented_states[count],
+                                  s2=next_augmented_state,
+                                  F=RLS.gradient_state(),
+                                  G=RLS.gradient_action(),
+                                  dr_ds=dr_ds
+                                  )
+
+
 
     # Log data
     stats.append({'t': env.t,
@@ -144,10 +146,15 @@ while not done:
         weight_stats['wai'].append(LonAgent.actor.trainable_weights[0].numpy().ravel().copy())
         weight_stats['wao'].append(LonAgent.actor.trainable_weights[1].numpy().ravel().copy())
 
-    if env.t > 60 or abs(observation[7]) > np.deg2rad(89) or abs(observation[6]) > np.deg2rad(89):
+    if env.t > 90 or abs(observation[7]) > np.deg2rad(89) or abs(observation[6]) > np.deg2rad(89):
         done = True
+
+    if 8 < env.t < 16:
+        update_agent = [True, True]
     if env.t > 16:
         excitation_phase = False
+        update_agent = [True, True]
+
     # Next step..
     observation = next_observation
     step += 1

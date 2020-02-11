@@ -228,22 +228,22 @@ class Helicopter3DOF:
         Kp, Ki, Kd = self.pid_weights
         ref = 15
         x = np.pi * t / 10
-        if self.t < 20:
-            ref = 0
-        elif 20 <= self.t < 70:
-            ref = 10
-            x = np.pi * t / 10
-        else:
-            ref = 15
-            x = np.pi * t / 10
+        # if self.t < 20:
+        #     ref = 0
+        # elif 20 <= self.t < 70:
+        #     ref = 10
+        #     x = np.pi * t / 10
+        # else:
+        #     ref = 15
+        #     x = np.pi * t / 10
         h_ref = 0
         if self.task is None:
             return 0
 
         elif self.task == 'sinusoid':
-            #pitch_ref = np.deg2rad(ref/1.76 * (np.sin(x) + np.sin(2*x)))
-            ref = np.deg2rad(np.sin(2*x) * ref)
-            state_ref = np.array([np.nan, -h_ref, np.nan, np.nan, ref, np.nan, np.nan])
+            pitch_ref = np.deg2rad(ref/1.76 * (np.sin(x) + np.sin(2*x)))
+            #ref = np.deg2rad(np.sin(2*x) * ref)
+            state_ref = np.array([np.nan, -h_ref, np.nan, np.nan, pitch_ref, np.nan, np.nan])
 
         elif self.task == 'velocity':
             u_err = self.ref - self.state[2]
