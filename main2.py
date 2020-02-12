@@ -59,10 +59,10 @@ if __name__ == "__main__":
     NN_STDEV = 2
     state_indices = AC_STATES + [TRACKED_STATE]
     reward_weight = 1
-    lr_actor = -0.01
-    lr_critic = 0.0001
-    gamma = 0.8
-    tau = 0.01
+    lr_actor = 0.01
+    lr_critic = 0.01
+    gamma = 0.9
+    tau = 0.001
     dt = 0.01
     t_max = 120
     n_steps = int(t_max / dt)
@@ -148,8 +148,8 @@ if __name__ == "__main__":
         lambda_t1.backward(error_critic.squeeze())
         with torch.no_grad():
             for wa, wc in zip(actor.parameters(), critic.parameters()):
-                wa.data.sub_(wa.grad.data * (target.mm(G).squeeze(dim=0)) * lr_actor)
-                wc.data.sub_(-wc.grad.data * lr_critic)
+                wa.data.sub_(wa.grad.data * (-target.mm(G).squeeze(dim=0)) * lr_actor)
+                wc.data.sub_(wc.grad.data * lr_critic)
             critic.zero_grad()
             actor.zero_grad()
             target_critic.zero_grad()
