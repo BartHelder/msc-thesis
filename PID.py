@@ -63,11 +63,8 @@ class CollectivePID:
         hdot = (obs[2] * np.sin(obs[4]) - obs[3] * np.cos(obs[4]))
         self.hdot_err = (hdot_ref - hdot)
         collective = np.deg2rad(5 + self.Kp * self.hdot_err + self.Ki * self.hdot_corr)
-
-        return collective
-
-    def increment_hdot_error(self):
         self.hdot_corr += self.dt * self.hdot_err
+        return np.clip(collective, 0, np.deg2rad(10))
 
 
 class LatPedPID:

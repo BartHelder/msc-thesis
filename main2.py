@@ -11,6 +11,7 @@ import torch.optim as optim
 from model import RecursiveLeastSquares
 from heli_models import Helicopter3DOF
 from plotting import plot_stats_3dof
+from PID import CollectivePID
 
 
 class DHPCritic(nn.Module):
@@ -26,11 +27,11 @@ class DHPCritic(nn.Module):
         return x
 
 class DHPActor(nn.Module):
-    def __init__(self, ni=2, nh=8, std=0.1, scaling=1):
+    def __init__(self, ni=2, nh=8, std=0.1, scaling=10):
         super(DHPActor, self).__init__()
         self.fc1 = nn.Linear(ni, nh, bias=False)
         nn.init.normal_(self.fc1.weight, mean=0, std=std)
-        self.fc2 = nn.Linear(nh, 1, bias=False)
+        self.fc2 = nn.Linear(nh, 1, bias=True)
         nn.init.normal_(self.fc2.weight, mean=0, std=std)
         self.scale = np.deg2rad(scaling)
 
@@ -40,23 +41,29 @@ class DHPActor(nn.Module):
         x = self.scale * x
         return x
 
+def augment_state(obs, ref):
+    return torch.tensor([obs[x] for x in AC_STATES] + [ref[TRACKED_STATE] - obs[TRACKED_STATE]], requires_grad=True)
+
 
 if __name__ == "__main__":
 
+    torch.manual_seed(0)
+    np.random.seed(0)
+
     # Some parameters
     V_INITIAL = 20
-    TRACKED_STATE = 4
-    AC_STATES = [5]
+    TRACKED_STATE = 5
+    AC_STATES = [4]
     NN_INPUTS = len(AC_STATES)+1
-    NN_HIDDEN = 8
-    NN_STDEV = 0.1
+    NN_HIDDEN = 10
+    NN_STDEV = 2
     state_indices = AC_STATES + [TRACKED_STATE]
-    reward_weight = 10
-    lr_actor = 0.1
-    lr_critic = 0.1
-    gamma = 0.6
+    reward_weight = 1
+    lr_actor = -0.01
+    lr_critic = 0.0001
+    gamma = 0.8
     tau = 0.01
-    dt = 0.02
+    dt = 0.01
     t_max = 120
     n_steps = int(t_max / dt)
 
@@ -74,16 +81,19 @@ if __name__ == "__main__":
                                    'covariance': 10**8,
                                    'constant': False})
 
-    # Neural nets
+    # Agents:
+    #  Neural networks
     actor = DHPActor(ni=NN_INPUTS, nh=NN_HIDDEN, std=NN_STDEV)
     critic = DHPCritic(ni=NN_INPUTS, nh=NN_HIDDEN, std=NN_STDEV)
     target_critic = copy.deepcopy(critic)
+    #  PID
+    collective_controller = CollectivePID(dt=dt)
 
     # Excitation signal for the RLS estimator
     excitation = np.zeros((1000, 2))
     # for j in range(400):
-    #     excitation[j, 0] = -np.sin(np.pi * j / 50)
-    #     excitation[j + 400, 1] = np.sin(2 * np.pi * j / 50) * 2
+    #     #excitation[j, 1] = -np.sin(np.pi * j / 50)
+    #     #excitation[j + 400, 1] = np.sin(2 * np.pi * j / 50) * 2
     # excitation = np.deg2rad(excitation)
 
     # Bookkeeping
@@ -94,31 +104,37 @@ if __name__ == "__main__":
 
     ########## Main loop:
     for step in range(n_steps):
+
         # Get ref, action, take action
         ref = env.get_ref()
-        aug = torch.tensor([obs[5], ref[TRACKED_STATE]-obs[TRACKED_STATE]],
-                                       requires_grad=True)
+        aug = augment_state(obs, ref)
         cyclic = actor.forward(aug)
-        actions = np.array([trim_action[0], trim_action[1] + cyclic.data])
+        collective = collective_controller(obs)
+        actions = np.array([collective, trim_action[1] + cyclic.data])
         if excitation_phase:
             actions += excitation[step]
         next_obs, _, done = env.step(actions)
         if np.isnan(next_obs).any():
+            print("NaN encounted in next_obs at timestep", step)
             break
-        # Process transition
-        tracking_error = ref[TRACKED_STATE] - next_obs[TRACKED_STATE]
+        # Process transition based on next state and current reference
+        tracking_error = ref[TRACKED_STATE] - next_obs[TRACKED_STATE]  # r_{t+1} = f(s_{t+1}, sRef_{t})
         reward = -tracking_error**2 * reward_weight
-        dr_ds[:, -1] = 2 * tracking_error * reward_weight
-        next_aug = torch.tensor([next_obs[5], tracking_error],
-                                requires_grad=True)
+        dr_ds[:, -1] = -2 * tracking_error * reward_weight
 
-        # Update RLS
+        # Augment next state - input for target critic
+        next_ref = env.get_ref()
+        next_aug = augment_state(next_obs, next_ref)
+
+        # Update RLS estimator,
         RLS.update(obs, actions, next_obs)
         F = torch.tensor(RLS.gradient_state()[np.ix_(state_indices, state_indices)], dtype=torch.float)
         G = torch.tensor(RLS.gradient_action()[np.ix_(state_indices, [1])],  dtype=torch.float)
 
+        # Forward passes...
         lambda_t1 = critic.forward(aug)
-        lambda_t2 = target_critic.forward(next_aug)
+        with torch.no_grad():
+            lambda_t2 = target_critic.forward(next_aug)
 
         # Backpropagate raw action through actor network
         cyclic.backward()
@@ -132,10 +148,11 @@ if __name__ == "__main__":
         lambda_t1.backward(error_critic.squeeze())
         with torch.no_grad():
             for wa, wc in zip(actor.parameters(), critic.parameters()):
-                wa.data.sub_(wa.grad.data * (target.mm(G).squeeze(dim=0)) * lr_actor )
+                wa.data.sub_(wa.grad.data * (target.mm(G).squeeze(dim=0)) * lr_actor)
                 wc.data.sub_(-wc.grad.data * lr_critic)
             critic.zero_grad()
             actor.zero_grad()
+            target_critic.zero_grad()
 
         # Update target network
         for target_param, param in zip(target_critic.parameters(), critic.parameters()):
@@ -161,8 +178,6 @@ if __name__ == "__main__":
 
         if done:
             break
-
-
 
     stats = pd.DataFrame(stats)
     plot_stats_3dof(stats)

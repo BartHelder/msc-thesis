@@ -226,7 +226,7 @@ class Helicopter3DOF:
     def get_ref(self):
         t = self.t + self.dt
         Kp, Ki, Kd = self.pid_weights
-        ref = 15
+        ref = 10
         x = np.pi * t / 10
         # if self.t < 20:
         #     ref = 0
@@ -241,9 +241,9 @@ class Helicopter3DOF:
             return 0
 
         elif self.task == 'sinusoid':
-            pitch_ref = np.deg2rad(ref/1.76 * (np.sin(x) + np.sin(2*x)))
+            qref = np.deg2rad(ref/1.76 * (np.sin(x) + np.sin(2*x)))
             #ref = np.deg2rad(np.sin(2*x) * ref)
-            state_ref = np.array([np.nan, -h_ref, np.nan, np.nan, pitch_ref, np.nan, np.nan])
+            state_ref = np.array([np.nan, -h_ref, np.nan, np.nan, np.nan, qref, np.nan])
 
         elif self.task == 'velocity':
             u_err = self.ref - self.state[2]

@@ -1,4 +1,4 @@
-{ "dt": 0.02,
+{ "dt": 0.01,
   "agent":
     {"cyclic_lon":
       {"action_scaling": 15,
@@ -27,7 +27,7 @@
     },
   "training":
     {"stop_training_time": 120,
-    "trim_speed": 20,
+    "trim_speed": 10,
     "updates_per_timestep":  1},
   "env": 
     {"tasks": 
