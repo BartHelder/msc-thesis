@@ -21,17 +21,19 @@ class DHPCritic(nn.Module):
         nn.init.normal_(self.fc1.weight, mean=0, std=std)
         self.fc2 = nn.Linear(nh, ni, bias=False)
         nn.init.normal_(self.fc2.weight, mean=0, std=std)
+
     def forward(self, x):
         x = torch.tanh(self.fc1(x))
         x = self.fc2(x)
         return x
+
 
 class DHPActor(nn.Module):
     def __init__(self, ni=2, nh=8, std=0.1, scaling=10):
         super(DHPActor, self).__init__()
         self.fc1 = nn.Linear(ni, nh, bias=False)
         nn.init.normal_(self.fc1.weight, mean=0, std=std)
-        self.fc2 = nn.Linear(nh, 1, bias=True)
+        self.fc2 = nn.Linear(nh, 1, bias=False)
         nn.init.normal_(self.fc2.weight, mean=0, std=std)
         self.scale = np.deg2rad(scaling)
 
@@ -40,6 +42,16 @@ class DHPActor(nn.Module):
         x = torch.tanh(self.fc2(x))
         x = self.scale * x
         return x
+
+class Logger:
+
+    def __init__(self, n_agents):
+        self.state_history = []
+        self.agent
+        self.off
+
+    def load(self):
+        return
 
 def augment_state(obs, ref):
     return torch.tensor([obs[x] for x in AC_STATES] + [ref[TRACKED_STATE] - obs[TRACKED_STATE]], requires_grad=True)
@@ -56,13 +68,13 @@ if __name__ == "__main__":
     AC_STATES = [4]
     NN_INPUTS = len(AC_STATES)+1
     NN_HIDDEN = 10
-    NN_STDEV = 2
+    NN_STDEV = 1
     state_indices = AC_STATES + [TRACKED_STATE]
     reward_weight = 1
-    lr_actor = 0.01
-    lr_critic = 0.01
-    gamma = 0.9
-    tau = 0.001
+    lr_actor = 0.4
+    lr_critic = 0.4
+    gamma = 0.8
+    tau = 0.01
     dt = 0.01
     t_max = 120
     n_steps = int(t_max / dt)
@@ -120,7 +132,7 @@ if __name__ == "__main__":
         # Process transition based on next state and current reference
         tracking_error = ref[TRACKED_STATE] - next_obs[TRACKED_STATE]  # r_{t+1} = f(s_{t+1}, sRef_{t})
         reward = -tracking_error**2 * reward_weight
-        dr_ds[:, -1] = -2 * tracking_error * reward_weight
+        dr_ds[:, -1] = 2 * tracking_error * reward_weight
 
         # Augment next state - input for target critic
         next_ref = env.get_ref()
