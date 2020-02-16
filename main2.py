@@ -1,4 +1,8 @@
 import copy
+import datetime
+import time
+import logging
+from collections import defaultdict
 
 import numpy as np
 import pandas as pd
@@ -43,14 +47,18 @@ class DHPActor(nn.Module):
         x = self.scale * x
         return x
 
+
 class Logger:
 
-    def __init__(self, n_agents):
+    def __init__(self, name, n_agents):
+        self.name = name
         self.state_history = []
-        self.agent
-        self.off
+        self.timestamp = datetime.datetime.now()
+        self.agents = defaultdict(dict)
+        for n in range(n_agents):
+            self.agents['agent_'+str(n)]
 
-    def load(self):
+    def load(self, filepath):
         return
 
 def augment_state(obs, ref):
@@ -59,6 +67,7 @@ def augment_state(obs, ref):
 
 if __name__ == "__main__":
 
+    t0 = time.time()
     torch.manual_seed(0)
     np.random.seed(0)
 
@@ -73,13 +82,13 @@ if __name__ == "__main__":
     reward_weight = 1
     lr_actor = 0.4
     lr_critic = 0.4
-    gamma = 0.8
+    gamma = 0.95
     tau = 0.01
     dt = 0.01
     t_max = 120
     n_steps = int(t_max / dt)
 
-    # Environment
+    # EnvironmentSt
     config_path = "/home/bart/PycharmProjects/msc-thesis/config_3dof.json"
     env = Helicopter3DOF(dt=dt, t_max=t_max)
     env.setup_from_config(task="sinusoid", config_path=config_path)
@@ -113,7 +122,8 @@ if __name__ == "__main__":
     done = False
     step = 0
     stats = []
-
+    t_start = time.time()
+    print("Setup time: ", t_start - t0)
     ########## Main loop:
     for step in range(n_steps):
 
@@ -126,9 +136,7 @@ if __name__ == "__main__":
         if excitation_phase:
             actions += excitation[step]
         next_obs, _, done = env.step(actions)
-        if np.isnan(next_obs).any():
-            print("NaN encounted in next_obs at timestep", step)
-            break
+
         # Process transition based on next state and current reference
         tracking_error = ref[TRACKED_STATE] - next_obs[TRACKED_STATE]  # r_{t+1} = f(s_{t+1}, sRef_{t})
         reward = -tracking_error**2 * reward_weight
@@ -153,18 +161,21 @@ if __name__ == "__main__":
         da_ds = aug.grad
 
         # From DHP definition:
-        target = dr_ds + gamma * lambda_t2
+        target = dr_ds + gamma*lambda_t2
         error_critic = lambda_t1 - target.mm(F + G.mm(da_ds.unsqueeze(0)))
 
         # Backpropagate error_critic through critic network and update weights
         lambda_t1.backward(error_critic.squeeze())
+        # Make sure these calculations don't affect the actual gradients by wrapping them in no_grad()
         with torch.no_grad():
             for wa, wc in zip(actor.parameters(), critic.parameters()):
+                # Substract grad(w)*lr from w (in-place)
                 wa.data.sub_(wa.grad.data * (-target.mm(G).squeeze(dim=0)) * lr_actor)
                 wc.data.sub_(wc.grad.data * lr_critic)
+            # In PyTorch, gradients accumulate rather than overwrite, so after updating they must be zeroed:
             critic.zero_grad()
             actor.zero_grad()
-            target_critic.zero_grad()
+            target_critic.zero_grad()  # I don't think these have a value inside of them but just to be sure...
 
         # Update target network
         for target_param, param in zip(target_critic.parameters(), critic.parameters()):
@@ -185,11 +196,18 @@ if __name__ == "__main__":
 
         obs = next_obs
 
+        if np.isnan(actions).any():
+            print("NaN encounted in actions at timestep", step)
+            break
+
         if step == 800:
             excitation_phase = False
 
         if done:
             break
 
+    t2 = time.time()
+    print("Training time: ", t2 - t_start)
     stats = pd.DataFrame(stats)
     plot_stats_3dof(stats)
+    print("Post-processing-time: ", time.time() - t2)
