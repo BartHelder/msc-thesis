@@ -61,8 +61,95 @@ class Logger:
     def load(self, filepath):
         return
 
-def augment_state(obs, ref):
-    return torch.tensor([obs[x] for x in AC_STATES] + [ref[TRACKED_STATE] - obs[TRACKED_STATE]], requires_grad=True)
+
+class Agent:
+
+    def __init__(self, control_channel: str, discount_factor,
+                 n_hidden_actor: int, nn_stdev_actor, learning_rate_actor, action_scaling,
+                 n_hidden_critic: int, nn_stdev_critic, learning_rate_critic, tau_target_critic,
+                 tracked_state: int, ac_states: list):
+        """
+        Describe this
+        :param control_channel:
+        :param n_hidden_actor:
+        :param nn_stdev_actor:
+        :param discount_factor_actor:
+        :param action_scaling:
+        :param n_hidden_critic:
+        :param nn_stdev_critic:
+        :param discount_factor_critic:
+        :param target_critic_tau:
+        :param tracked_state:
+        :param ac_states:
+        """
+
+        self.channel = control_channel
+        self.tracked_state = tracked_state
+        self.ac_states = ac_states
+        self.n_inputs = len(ac_states)+1
+        self.target_critic_tau = tau_target_critic
+
+        self.actor = DHPActor(ni=self.n_inputs, nh=n_hidden_actor, std=nn_stdev_actor, scaling=action_scaling)
+        self.critic = DHPCritic(ni=self.n_inputs, nh=n_hidden_critic, std=nn_stdev_critic)
+        self.target_critic = copy.deepcopy(self.critic)
+
+        self.learning_rate_actor = learning_rate_actor
+        self.learning_rate_critic = learning_rate_critic
+        self.gamma = discount_factor
+
+    def get_action(self, state, ref):
+        augmented_state = self.augment_state(state, ref)
+        with torch.no_grad():
+            action = self.actor.forward(augmented_state)
+        return action.data
+
+    def augment_state(self, state, reference):
+        augmented_state = [state[x] for x in self.ac_states] + [reference[self.tracked_state] - obs[self.tracked_state]]
+        return torch.tensor(augmented_state, requires_grad=True)
+
+    def update_networks(self, state, next_state, ref, next_ref, dr_ds, F, G):
+        """
+        Update the actor, critic and target critic model by doing forward and backward passes through the respective
+        neural networks according to the Dual Heuristic Dynamic Programming (DHP) strategy.
+        :param state:
+        :param next_state:
+        :param dr_ds:
+        :param F:
+        :param G:
+        :return:
+        """
+        augmented_state = self.augment_state(state, ref)
+        next_augmented_state = self.augment_state(next_state, next_ref)
+
+        # Forward passes...
+        action = self.actor.forward(augmented_state)
+        lambda_t1 = self.critic.forward(augmented_state)
+        lambda_t2 = self.target_critic.forward(next_augmented_state)
+
+        # Backpropagate raw action through actor network
+        action.backward()
+        da_ds = augmented_state.grad
+
+        # From DHP definition:
+        target = dr_ds + gamma * lambda_t2
+        error_critic = lambda_t1 - target.mm(F + G.mm(da_ds.unsqueeze(0)))
+
+        # Backpropagate error_critic through critic network and update weights
+        lambda_t1.backward(error_critic.squeeze())
+        # Make sure these calculations don't affect the actual gradients by wrapping them in no_grad()
+        with torch.no_grad():
+            for wa, wc in zip(self.actor.parameters(), self.critic.parameters()):
+                # .sub_() is in-place substraction - fast en memory-efficient
+                wa.data.sub_(wa.grad.data * (-target.mm(G).squeeze(dim=0)) * self.learning_rate_actor)
+                wc.data.sub_(wc.grad.data * self.learning_rate_critic)
+            # In PyTorch, gradients accumulate rather than overwrite, so after updating they must be zeroed:
+            self.critic.zero_grad()
+            self.actor.zero_grad()
+            self.target_critic.zero_grad()  # I don't think these have a value inside of them but just to be sure...
+
+        # Update target network - copy_() is a fast and memory-unintensive value overwrite
+        for target_param, param in zip(self.target_critic.parameters(), self.critic.parameters()):
+            target_param.data.copy_(tau * param.data + (1.0 - tau) * target_param.data)
 
 
 if __name__ == "__main__":
@@ -104,9 +191,18 @@ if __name__ == "__main__":
 
     # Agents:
     #  Neural networks
-    actor = DHPActor(ni=NN_INPUTS, nh=NN_HIDDEN, std=NN_STDEV)
-    critic = DHPCritic(ni=NN_INPUTS, nh=NN_HIDDEN, std=NN_STDEV)
-    target_critic = copy.deepcopy(critic)
+    agent = Agent(control_channel='cyclic',
+                  discount_factor=0.95,
+                  n_hidden_actor=10,
+                  nn_stdev_actor=1,
+                  learning_rate_actor=0.4,
+                  action_scaling=10,
+                  n_hidden_critic=10,
+                  nn_stdev_critic=1,
+                  learning_rate_critic=0.4,
+                  tau_target_critic=0.01,
+                  tracked_state=5,
+                  ac_states=[4])
     #  PID
     collective_controller = CollectivePID(dt=dt)
 
@@ -129,10 +225,9 @@ if __name__ == "__main__":
 
         # Get ref, action, take action
         ref = env.get_ref()
-        aug = augment_state(obs, ref)
-        cyclic = actor.forward(aug)
+        cyclic = agent.get_action(obs, ref)
         collective = collective_controller(obs)
-        actions = np.array([collective, trim_action[1] + cyclic.data])
+        actions = np.array([collective, trim_action[1] + cyclic])
         if excitation_phase:
             actions += excitation[step]
         next_obs, _, done = env.step(actions)
@@ -142,45 +237,16 @@ if __name__ == "__main__":
         reward = -tracking_error**2 * reward_weight
         dr_ds[:, -1] = 2 * tracking_error * reward_weight
 
-        # Augment next state - input for target critic
-        next_ref = env.get_ref()
-        next_aug = augment_state(next_obs, next_ref)
-
         # Update RLS estimator,
         RLS.update(obs, actions, next_obs)
         F = torch.tensor(RLS.gradient_state()[np.ix_(state_indices, state_indices)], dtype=torch.float)
         G = torch.tensor(RLS.gradient_action()[np.ix_(state_indices, [1])],  dtype=torch.float)
 
-        # Forward passes...
-        lambda_t1 = critic.forward(aug)
-        with torch.no_grad():
-            lambda_t2 = target_critic.forward(next_aug)
+        # Get new ref from environment, update actor and critic networks
+        next_ref = env.get_ref()
+        agent.update_networks(obs, next_obs, ref, next_ref, dr_ds, F, G)
 
-        # Backpropagate raw action through actor network
-        cyclic.backward()
-        da_ds = aug.grad
-
-        # From DHP definition:
-        target = dr_ds + gamma*lambda_t2
-        error_critic = lambda_t1 - target.mm(F + G.mm(da_ds.unsqueeze(0)))
-
-        # Backpropagate error_critic through critic network and update weights
-        lambda_t1.backward(error_critic.squeeze())
-        # Make sure these calculations don't affect the actual gradients by wrapping them in no_grad()
-        with torch.no_grad():
-            for wa, wc in zip(actor.parameters(), critic.parameters()):
-                # Substract grad(w)*lr from w (in-place)
-                wa.data.sub_(wa.grad.data * (-target.mm(G).squeeze(dim=0)) * lr_actor)
-                wc.data.sub_(wc.grad.data * lr_critic)
-            # In PyTorch, gradients accumulate rather than overwrite, so after updating they must be zeroed:
-            critic.zero_grad()
-            actor.zero_grad()
-            target_critic.zero_grad()  # I don't think these have a value inside of them but just to be sure...
-
-        # Update target network
-        for target_param, param in zip(target_critic.parameters(), critic.parameters()):
-            target_param.data.copy_(tau * param.data + (1.0 - tau) * target_param.data)
-
+        # Log data
         stats.append({'t': env.t,
                       'x': obs[0],
                       'z': obs[1],
