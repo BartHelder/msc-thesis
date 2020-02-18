@@ -1,259 +1,176 @@
+import torch
+import torch.nn as nn
+
 import numpy as np
-import pandas as pd
-from functools import partial
-import time
-import datetime
-import json
-import pickle as pkl
-import itertools
-
-from heli_models import Helicopter3DOF
-from plotting import plot_neural_network_weights_2, plot_stats_3dof, plot_policy_function
-from model import RecursiveLeastSquares
-
-class TFActor3DOF(tf.keras.Model):
-
-    def __init__(self, n_hidden, initializer, action_scaling=15, offset=0):
-        super(TFActor3DOF, self).__init__()
-        self.action_scaling = np.deg2rad(action_scaling)
-        self.offset = np.deg2rad(offset)
-
-        self.h1 = kl.Dense(n_hidden,
-                           activation='tanh',
-                           use_bias=False,
-                           kernel_initializer=initializer)
-        self.a = kl.Dense(1,
-                          activation=partial(scaled_tanh, self.action_scaling),
-                          kernel_initializer=initializer,
-                          use_bias=False)
-
-    def call(self, x, **kwargs):
-        x = self.h1(x)
-        return tf.add(self.offset, self.a(x))
+import copy
 
 
-class TFActor6DOF(tf.keras.Model):
-
-    def __init__(self, n_hidden, initializer):
-        super(TFActor6DOF, self).__init__()
-        self.h1 = kl.Dense(n_hidden,
-                           activation='tanh',
-                           kernel_initializer=initializer,
-                           use_bias=False,
-                           bias_initializer=initializer)
-
-        self.a = kl.Dense(1,
-                          activation='sigmoid',
-                          kernel_initializer=initializer,
-                          use_bias=False,
-                          )
-
-    def call(self, x, **kwargs):
-        x = self.h1(x)
-        return self.a(x)
-
-
-class HDPCritic(tf.keras.Model):
-
-    def __init__(self, n_hidden, initializer):
-        super(HDPCritic, self).__init__()
-        self.h1 = kl.Dense(n_hidden, activation='tanh', use_bias=False, kernel_initializer=initializer)
-        self.v = kl.Dense(1, name='value', use_bias=False,  kernel_initializer=initializer)
-
-    def call(self, x, **kwargs):
-        x = self.h1(x)
-        return self.v(x)
-
-
-class DHPCritic(tf.keras.Model):
-
-    def __init__(self, n_hidden, n_outputs, initializer):
+class DHPCritic(nn.Module):
+    def __init__(self, ni, nh=8, std=0.1):
         super(DHPCritic, self).__init__()
-        self.h1 = kl.Dense(n_hidden, activation='tanh', use_bias=False, kernel_initializer=initializer)
-        self.v = kl.Dense(n_outputs, name='value', use_bias=False, kernel_initializer=initializer)
+        self.fc1 = nn.Linear(ni, nh, bias=False)
+        nn.init.normal_(self.fc1.weight, mean=0, std=std)
+        self.fc2 = nn.Linear(nh, ni, bias=False)
+        nn.init.normal_(self.fc2.weight, mean=0, std=std)
 
-    def call(self, x, **kwargs):
-        x = self.h1(x)
-        return self.v(x)
-
-
-class Agent(object):
-    def __init__(self, config, control_channel):
-        with open(config, "r") as f:
-            c = json.load(f)
-        conf = c["agent"][control_channel]
-        self.optimizer_actor = ko.SGD(lr=conf["lr_actor"],
-                                nesterov=bool(conf["use_nesterov_momentum"]),
-                                momentum=conf["momentum"])
-        self.optimizer_critic = ko.SGD(lr=conf["lr_critic"],
-                                nesterov=bool(conf["use_nesterov_momentum"]),
-                                momentum=conf["momentum"])
-        self.control_channel = control_channel
-        self.tracked_state = conf["tracked_state"]
-        self.actor_critic_states = conf["actor_critic_states"]
-        self.reward_weight = conf["reward_weight"]
-        self.discount_factor = conf["discount_factor"]
-        self.mapping = {'collective': 0,
-                        'cyclic_lon': 1,
-                        'cyclic_lat': 2,
-                        'directional': 3}
-        self.info = {'n_hidden': conf["n_hidden"],
-                     'discount_factor': conf["discount_factor"],
-                     'lr_actor': conf["lr_actor"],
-                     'lr_critic': conf["lr_critic"]}
-        self.actor = None
-        self.critic = None
-        self.model = None
-
-    def augment_state(self, observation, reference):
-        tracking_error = reference[self.tracked_state] - observation[self.tracked_state]
-        return tf.constant([[observation[x] for x in self.actor_critic_states] + [tracking_error]])
-
-    def get_reward(self, observation, reference, clip_value=-5):
-        tracking_error = reference[self.tracked_state] - observation[self.tracked_state]
-        reward = -tracking_error**2 * self.reward_weight
-        reward = np.clip(reward, clip_value, 0)
-        return reward
-
-    def update_networks(self, **kwargs):
-        raise NotImplementedError("This function needs to be overwritten by a child class")
-
-    def save(self, name, folder="saved_models/"+datetime.date.today().isoformat()+"/"):
-        self.actor.save_weights(folder + "actor_" + name, save_format='tf')
-        self.critic.save_weights(folder + "critic_" + name, save_format='tf')
-
-    def load(self, name, folder):
-        self.actor.load_weights(folder + "actor_" + name)
-        self.critic.load_weights(folder + "critic_" + name)
+    def forward(self, x):
+        x = torch.tanh(self.fc1(x))
+        x = self.fc2(x)
+        return x
 
 
-class HDPAgent(Agent):
+class DHPActor(nn.Module):
+    def __init__(self, ni, nh=8, std=0.1, scaling=10):
+        super(DHPActor, self).__init__()
+        self.fc1 = nn.Linear(ni, nh, bias=False)
+        nn.init.normal_(self.fc1.weight, mean=0, std=std)
+        self.fc2 = nn.Linear(nh, 1, bias=False)
+        nn.init.normal_(self.fc2.weight, mean=0, std=std)
+        self.scale = np.deg2rad(scaling)
 
-    def __init__(self,
-                 config,
-                 control_channel,
-                 actor,
-                 **kwargs
-
-                 ):
-        super().__init__(config, control_channel)
-        with open(config, "r") as f:
-            c = json.load(f)
-        conf = c["agent"][control_channel]
-        initializer = tf.initializers.TruncatedNormal(mean=0.0, stddev=conf["weights_stddev"])
-
-        self.actor = actor(n_hidden=conf["n_hidden"],
-                           initializer=initializer,
-                           **kwargs)
-        self.critic = HDPCritic(n_hidden=conf["n_hidden"],
-                                initializer=initializer)
-        self.ds_da = None
-        self.loss_object = kls.MeanSquaredError()
-
-    def set_ds_da(self, rls_model):
+    def forward(self, x):
+        x = torch.tanh(self.fc1(x))
+        x = torch.tanh(self.fc2(x))
+        x = self.scale * x
+        return x
 
 
-        ds_da = rls_model.gradient_action()[:, self.mapping[self.control_channel]]
-        state_transition = ds_da[self.actor_critic_states]
-        # if the state increases, tracking error decreases proportionally:
-        tracking_error = -ds_da[self.tracked_state].reshape((1, 1))
-        dsda = np.append(state_transition, tracking_error, axis=0)
-        self.ds_da = tf.constant(dsda)
+class DHPAgent:
 
-        return dsda
-
-    def update_networks(self, td_target, s_aug, n_updates=2):
+    def __init__(self, control_channel: str, discount_factor,
+                 n_hidden_actor: int, nn_stdev_actor, learning_rate_actor, action_scaling,
+                 n_hidden_critic: int, nn_stdev_critic, learning_rate_critic, tau_target_critic,
+                 tracked_state: int, ac_states: list,
+                 reward_weight=1):
         """
-        :param x:
+        An agent is a container for three neural networks (actor, critic, and target critic) as well as a reward
+        function. Contains an interface for interacting with the environment (get_action) and a RLS model of the
+        environment (get_transition_matrices). The Incremental Dual Heuristic Programming (IDHP) update mechanism
+        is roughly according to Heyer, Kroezen, Van Kampen (2020)
+        :param control_channel: three-letter code of the control channel. Choose from: col, lon, lat, ped
+        :param discount_factor
+        :param n_hidden_actor: Number of hidden neurons in the actor network
+        :param nn_stdev_actor: Standard deviation of the hidden layer initialization of the actor
+        :param learning_rate_actor: Learning rate (alpha) of the actor
+        :param action_scaling: Scaling of the output of the actor in degrees, should correspond roughly to real actuator limits
+        :param n_hidden_critic: Number of hidden neurons in the critic network
+        :param nn_stdev_critic: Standard deviation of the hidden layer initialization of the critic
+        :param learning_rate_critic: Learning rate (alpha) of the critic
+        :param tau_target_critic: Time delay / update speed of the target critic.
+                                   tau=1 means they are the same, 0<tau<1 means a lagged target critic is used
+        :param tracked_state: Primary state the ACD attempts to track. The tracking error of this state is an input
+        :param ac_states: Auxiliary states also fed into the ACD
+        :param reward_weight:
         """
-        for _ in tf.range(tf.constant(n_updates)):
-            with tf.GradientTape(persistent=True) as tape:
-                tape.watch(s_aug)
-                value = self.critic(s_aug)
-                value_loss = self.loss_object(td_target, value)
-                action = self.actor(s_aug)
 
-            # Critic gradients is the derivative of MSE between td-target and value
-            gradient_critic = tape.gradient(value_loss, self.critic.trainable_variables)
-            self.optimizer_critic.apply_gradients(zip(gradient_critic, self.critic.trainable_variables))
+        self.control_channel_mapping = {'col': 0, 'lon': 1, 'lat': 2, 'ped': 3}
+        self.control_channel = self.control_channel_mapping[control_channel]
 
-            # Actor gradient through the critic and environment model: dEa/dwa = V * dV/ds * ds/da * da/dwa
-            dV_ds = tape.gradient(value, s_aug)
-            scale = tf.squeeze(tf.multiply(value, tf.matmul(dV_ds, self.ds_da)))
-            da_dwa = tape.gradient(action, self.actor.trainable_variables)
-            gradient_actor = [tf.multiply(scale, x) for x in da_dwa]
-            self.optimizer_actor.apply_gradients(zip(gradient_actor, self.actor.trainable_variables))
+        self.tracked_state = tracked_state
+        self.ac_states = ac_states
+        self.n_inputs = len(ac_states)+1
 
+        self.actor = DHPActor(ni=self.n_inputs, nh=n_hidden_actor, std=nn_stdev_actor, scaling=action_scaling)
+        self.critic = DHPCritic(ni=self.n_inputs, nh=n_hidden_critic, std=nn_stdev_critic)
+        self.target_critic = copy.deepcopy(self.critic)
 
-class DHPAgent(Agent):
+        self.learning_rate_actor = learning_rate_actor
+        self.learning_rate_critic = learning_rate_critic
+        self.gamma = discount_factor
+        self.tau_target_critic = tau_target_critic
 
-    def __init__(self,
-                 config,
-                 control_channel,
-                 actor,
-                 target_critic_tau=0.01,
-                 **kwargs
-                 ):
+        self.reward_weight = reward_weight
 
-        super().__init__(config, control_channel)
-        with open(config, "r") as f:
-            c = json.load(f)
-        conf = c["agent"][control_channel]
-        initializer = tf.initializers.TruncatedNormal(mean=0.0, stddev=conf["weights_stddev"])
-        self.actor = actor(n_hidden=conf["n_hidden"],
-                           initializer=initializer,
-                           **kwargs)
-        self.critic = DHPCritic(n_hidden=conf["n_hidden"],
-                                n_outputs=len(conf["actor_critic_states"])+1,
-                                initializer=initializer)
-        # TODO: copy critic weights to target critic --after-- initialization
-        self.target_critic = DHPCritic(n_hidden=conf["n_hidden"],
-                             n_outputs=len(conf["actor_critic_states"])+1,
-                             initializer=initializer)
-        self.critic_tau = target_critic_tau
+    def get_action(self, state, ref):
+        augmented_state = self.augment_state(state, ref)
+        with torch.no_grad():
+            action = self.actor.forward(augmented_state)
+        return action.data
 
-    def get_reward(self, observation, reference, clip_value=-5):
-        tracking_error = reference[self.tracked_state] - observation[self.tracked_state]
+    def get_reward(self, next_state, ref):
+        dr_ds = torch.zeros((1, len(self.ac_states) + 1))
+        tracking_error = next_state[self.tracked_state] - ref[self.tracked_state]  # r_{t+1} = f(s_{t+1}, sRef_{t})
         reward = -tracking_error**2 * self.reward_weight
-        reward = np.clip(reward, clip_value, 0)
-        reward_derivative = np.zeros(shape=(1, len(self.actor_critic_states)+1))
-        reward_derivative[-1] = -2 * tracking_error * self.reward_weight
-        return reward, reward_derivative
+        dr_ds[:, -1] = -2 * tracking_error * self.reward_weight
+        return reward, dr_ds
 
-    def update_networks(self, s1, s2, F, G, dr_ds):
+    def get_transition_matrices(self, RLS):
+        """
+        Extract the correct submatrices from the incremental RLS system matrices, for use in updating the actor and
+        critic.
+        :param RLS: RLS estimator instance
+        :return: torch tensors F and G, containing only the elements used by the ACD
+        """
+        state_indices = self.ac_states + [self.tracked_state]
+        F = RLS.gradient_state()[np.ix_(state_indices, state_indices)]
+        G = RLS.gradient_action()[np.ix_(state_indices, [self.control_channel])]
+        return torch.tensor(F, dtype=torch.float), torch.tensor(G, dtype=torch.float)
 
-        # Forward passes
-        with tf.GradientTape(persistent=True) as tape:
-            tape.watch(s1)
-            lambda_1 = self.critic(s1)
-            action = self.actor(s1)
+    def augment_state(self, state, reference):
+        """
+        Transform observation and reference into the augmented state form,
+        :param state:
+        :param reference:
+        :return:
+        """
+        augmented_state = [state[x] for x in self.ac_states] + [reference[self.tracked_state]-state[self.tracked_state]]
+        return torch.tensor(augmented_state, requires_grad=True)
 
-        lambda_2 = self.target_critic(s2)
+    def update_networks(self, state, next_state, ref, next_ref, dr_ds, F, G):
+        """
+        Update the actor, critic and target critic model by doing forward and backward passes through the respective
+        neural networks according to the Dual Heuristic Dynamic Programming (DHP) strategy.
+        :param state:
+        :param next_state:
+        :param ref:
+        :param next_ref:
+        :param dr_ds:
+        :param F:
+        :param G:
+        :return:
+        """
+        augmented_state = self.augment_state(state, ref)
+        next_augmented_state = self.augment_state(next_state, next_ref)
 
-        # Backward pass
-        dlambda_dwc = tape.gradient(lambda_1, self.critic.trainable_variables)
-        da_ds = tape.gradient(action, s1)
-        da_dwa = tape.gradient(action, self.actor.trainable_variables)
-        del tape
+        # Forward passes...
+        action = self.actor.forward(augmented_state)
+        lambda_t1 = self.critic.forward(augmented_state)
+        lambda_t2 = self.target_critic.forward(next_augmented_state)
 
-        # Select relevant rows and columns from F and G matrices
-        state_indices = self.actor_critic_states + [self.tracked_state]
-        Fhat = F[np.ix_(state_indices, state_indices)]
-        Ghat = G[np.ix_(state_indices, [self.mapping[self.control_channel]])]
+        # Backpropagate raw action through actor network
+        action.backward()
+        da_ds = augmented_state.grad
 
-        # Critic update
-        target = dr_ds + self.discount_factor * lambda_2
-        e_c = lambda_1 - dr_ds - target @ (Fhat + Ghat @ da_ds)
-        gradients_critic = e_c @ dlambda_dwc
-        self.optimizer_critic.apply_gradients(zip(gradients_critic, self.critic.trainable_variables))
+        # From DHP definition:
+        target = dr_ds + self.gamma * lambda_t2
+        error_critic = lambda_t1 - target.mm(F + G.mm(da_ds.unsqueeze(0)))
 
-        # Sync target network
-        for target_weights, weights in zip(self.target_critic.trainable_variables, self.critic.trainable_variables):
-            target_weights = self.critic_tau * weights + (1-self.critic_tau) * target_weights
+        # Backpropagate error_critic through critic network and update weights
+        lambda_t1.backward(error_critic.squeeze())
+        # Make sure these calculations don't affect the actual gradients by wrapping them in no_grad()
+        with torch.no_grad():
+            for wa, wc in zip(self.actor.parameters(), self.critic.parameters()):
+                # .sub_() is in-place substraction - fast en memory-efficient
+                wa.data.sub_(wa.grad.data * (-target.mm(G).squeeze(dim=0)) * self.learning_rate_actor)
+                wc.data.sub_(wc.grad.data * self.learning_rate_critic)
+            # In PyTorch, gradients accumulate rather than overwrite, so after updating they must be zeroed:
+            self.critic.zero_grad()
+            self.actor.zero_grad()
+            self.target_critic.zero_grad()  # I don't think these have a value inside of them but just to be sure...
 
-        # Actor update
-        gradients_actor = -target * G * da_dwa
-        self.optimizer_actor.apply_gradients(zip(gradients_actor, self.actor.trainable_variables))
+        # Update target network - copy_() is a fast and memory-unintensive value overwrite
+        for target_param, param in zip(self.target_critic.parameters(), self.critic.parameters()):
+            target_param.data.copy_(self.tau_target_critic * param.data + (1.0 - self.tau_target_critic) * target_param.data)
 
+    def save(self, path):
+        torch.save({
+            "actor_state_dict": self.actor.state_dict(),
+            "critic_state_dict": self.critic.state_dict(),
+            "target_critic_state_dict": self.target_critic()
+        }, path)
 
-        return
+    def load(self, path):
+        checkpoint = torch.load(path)
+        self.actor.load_state_dict(checkpoint("actor_state_dict"))
+        self.critic.load_state_dict(checkpoint["critic_state_dict"])
+        self.target_critic.load_state_dict(checkpoint["target_critic_state_dict"])
