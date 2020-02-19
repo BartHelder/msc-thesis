@@ -26,11 +26,14 @@ class DHPActor(nn.Module):
         nn.init.normal_(self.fc1.weight, mean=0, std=std)
         self.fc2 = nn.Linear(nh, 1, bias=False)
         nn.init.normal_(self.fc2.weight, mean=0, std=std)
-        self.scale = np.deg2rad(scaling)
+        if scaling is not None:
+            self.scale = np.deg2rad(scaling)
+        else:
+            self.scale = 1
 
     def forward(self, x):
         x = torch.tanh(self.fc1(x))
-        x = torch.tanh(self.fc2(x))
+        x = torch.sigmoid(self.fc2(x))
         x = self.scale * x
         return x
 

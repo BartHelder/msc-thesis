@@ -17,20 +17,6 @@ from plotting import plot_stats_3dof
 from PID import CollectivePID
 
 
-class Logger:
-
-    def __init__(self, name, n_agents):
-        self.name = name
-        self.state_history = []
-        self.timestamp = datetime.datetime.now()
-        self.agents = defaultdict(dict)
-        for n in range(n_agents):
-            self.agents['agent_'+str(n)] = {}
-
-    def load(self, filepath):
-        return
-
-
 t0 = time.time()
 torch.manual_seed(1)
 np.random.seed(0)

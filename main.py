@@ -1,88 +1,156 @@
-import numpy as np
-import tensorflow as tf
-import multiprocessing as mp
 import itertools
-import json
+
+import time
+import numpy as np
 import pandas as pd
+import torch
+
+from agents import DHPAgent
+from model import RecursiveLeastSquares
+from heli_models import Helicopter3DOF
 from heli_models import Helicopter6DOF
 from plotting import plot_neural_network_weights_2, plot_stats_6dof, plot_policy_function, plot_rls_stats
-from agents import HDPAgent, DHPAgent, HDPCritic, TFActor6DOF
 from PID import LatPedPID
-from model import RecursiveLeastSquares
+
+def get_ref(t):
+    ref = np.nan * np.ones_like(observation)
+    qref = np.deg2rad(10 / 1.76 * (np.sin(np.pi * t / 10) + np.sin(2 * np.pi * t / 10)))
+    ref[4] = qref
+    ref[11] = 0
+    return ref
 
 
-save_weights = False
-tf.random.set_seed(1)
-cfp = "config_6dof.json"
+t0 = time.time()
+torch.manual_seed(1)
+np.random.seed(0)
 
+# Some parameters
+agent_parameters = {'col':
+                    {'control_channel': 'col',
+                     'discount_factor': 0.9,
+                     'n_hidden_actor': 10,
+                     'nn_stdev_actor': 0.1,
+                     'learning_rate_actor': 0.1,
+                     'action_scaling': 5,
+                     'n_hidden_critic': 10,
+                     'nn_stdev_critic': 0.1,
+                     'learning_rate_critic': 0.1,
+                     'tau_target_critic': 0.01,
+                     'tracked_state': 11,
+                     'ac_states': [2],
+                     'reward_weight': 0.01},
+                    'lon':
+                    {'control_channel': 'lon',
+                     'discount_factor': 0.95,
+                     'n_hidden_actor': 10,
+                     'nn_stdev_actor': 0.75,
+                     'learning_rate_actor': 0.4,
+                     'action_scaling': 10,
+                     'n_hidden_critic': 10,
+                     'nn_stdev_critic': 0.75,
+                     'learning_rate_critic': 0.4,
+                     'tau_target_critic': 0.01,
+                     'tracked_state': 4,
+                     'ac_states': [7]}}
+rls_parameters = {'state_size': 15,
+                  'action_size': 2,
+                  'gamma': 1,
+                  'covariance': 10**8,
+                  'constant': False}
+V_INITIAL = 0
+dt = 0.01
+t_max = 180
+n_steps = int(t_max / dt)
+
+# EnvironmentSt
+config_path = "/home/bart/PycharmProjects/msc-thesis/config_3dof.json"
 env = Helicopter6DOF()
-trim_state, trim_actions = env.trim(trim_speed=20, flight_path_angle=0, altitude=0)
+trim_state, trim_actions = env.trim(trim_speed=V_INITIAL, flight_path_angle=0, altitude=0)
+
+# incremental RLS estimator
+RLS = RecursiveLeastSquares(**rls_parameters)
+
+# Agents:
+agent_col = DHPAgent(**agent_parameters['col'])
+agent_lon = DHPAgent(**agent_parameters['lon'])
+agents = [agent_col, agent_lon]
+
+# Excitation signal for the RLS estimator
+excitation = np.zeros((1000, 2))
+# for j in range(400):
+#     #excitation[j, 1] = -np.sin(np.pi * j / 50)
+#     #excitation[j + 400, 1] = np.sin(2 * np.pi * j / 50) * 2
+excitation = np.deg2rad(excitation)
+
+stats = []
+network_sequence = ['a', 'c', 'tc']
+layer_sequence = ['i', 'o']
+
+weight_stats = {'t': [],
+                'col':
+                    {'nn': {
+                        'a': {'i': [],
+                              'o': []},
+                        'c': {'i': [],
+                              'o': []},
+                        'tc': {'i': [],
+                               'o': []}
+                            },
+                     'rls': {'F': [],
+                             'G': []
+                             }
+                     },
+                'lon': {
+                    'nn': {
+                        'a': {'i': [],
+                              'o': []},
+                        'c': {'i': [],
+                              'o': []},
+                        'tc': {'i': [],
+                               'o': []}
+                            },
+                    'rls': {'F': [],
+                            'G': []}
+                     }
+                }
+
 
 # Create controllers
-ColAgent = DHPAgent(cfp, actor=TFActor6DOF, control_channel="collective")
-LonAgent = DHPAgent(cfp, actor=TFActor6DOF, control_channel="cyclic_lon")
-LatPedController = LatPedPID(config_path=cfp,
+LatPedController = LatPedPID(config_path='config_6dof.json',
                              phi_trim=trim_state[6],
                              lat_trim=trim_actions[2],
                              pedal_trim=trim_actions[3])
 
-agents = (ColAgent, LonAgent)
-stats = []
-weight_stats = {'t': [],
-                'wci': [],
-                'wco': [],
-                'wai': [],
-                'wao': []}
-
-reward = [None, None]
+# Bookkeeping
+excitation_phase = False
 done = False
+rewards = np.zeros(2)
+t_start = time.time()
+update_col = False
+update_lon = True
 observation = trim_state.copy()
-
-# Incremental RLS estimator
-rls_kwargs = {'state_size': len(observation), 'action_size': 4, 'gamma': 1, 'covariance': 10**8, 'constant': False}
-RLS = RecursiveLeastSquares(**rls_kwargs)
-rls_stats = {'t': [0],
-             'wa_col': [RLS.gradient_action()[:6, 0].ravel().copy()],
-             'wa_cyc': [RLS.gradient_action()[:6, 1].ravel().copy()],
-             'ws': [RLS.gradient_state().ravel().copy()]}
-
-# Add excitation to inputs
-excitation = np.zeros((1000, 4))
-for j in range(400):
-    excitation[j, 0] = -np.sin(np.pi * j/50) * 0.05
-    excitation[j+400, 1] = np.sin(np.pi *j/50) * 0.05
-excitation_phase = True
-
-ref = np.nan * np.ones_like(observation)
+ref = get_ref(env.t)
 step = 0
-update_agent = [False, True]
-while not done:
+save_weights = True
 
-    # Get new reference
-    if env.t < 20:
-        A = 0
-    elif 20 <= env.t < 70:
-        A = 10
-    else:
-        A = 15
+for step in range(n_steps):
 
-    qref = np.deg2rad(np.sin(2 * np.pi * env.t / 10) * A)
+    if step == 6000:
+        update_col = True
+        update_lon = True
 
-    ref[4] = qref
-    ref[11] = 0
-
-    # Augment state with tracking errors
-    augmented_states = (ColAgent.augment_state(observation, reference=ref),
-                        LonAgent.augment_state(observation, reference=ref))
-
+    # Get ref, action, take action
     lateral_cyclic, pedal = LatPedController(observation)
-
-    # Get actions from actors
-    actions = [ColAgent.actor(augmented_states[0]).numpy().squeeze(),
-               LonAgent.actor(augmented_states[1]).numpy().squeeze(),
-               #trim_actions[1],
-               lateral_cyclic,
-               pedal]
+    if step < 6000:
+        actions = np.array([np.deg2rad(5),  # + agent_col.get_action(obs, ref),
+                           trim_actions[1] + agent_lon.get_action(observation, ref),
+                           lateral_cyclic,
+                           pedal])
+    else:
+        actions = np.array([trim_actions[0] + agent_col.get_action(observation, ref),
+                            trim_actions[1] + agent_lon.get_action(observation, ref),
+                            lateral_cyclic,
+                            pedal])
 
     # Add excitations (RLS windup phase) and trim values
     if excitation_phase:
@@ -93,23 +161,25 @@ while not done:
 
     # Take step in the environment
     next_observation, _, done = env.step(actions)
+    next_ref = get_ref(env.t)
+    # Update RLS estimator,
+    RLS.update(observation, actions[:2], next_observation)
 
-    # Update RLS model
-    RLS.update(state=observation, action=actions, next_state=next_observation)
+    # Cyclic
+    if update_lon:
+        rewards[1], dr_ds = agents[1].get_reward(next_observation, ref)
+        F, G = agents[1].get_transition_matrices(RLS)
+        agents[1].update_networks(observation, next_observation, ref, next_ref, dr_ds, F, G)
+    else:
+        rewards[1] = 0
 
-
-    # Get rewards, update actor and critic networks
-    for agent, count in zip(agents, itertools.count()):
-        reward[count], dr_ds = agent.get_reward(next_observation, ref)
-        next_augmented_state = agent.augment_state(next_observation, ref)
-        if update_agent[count]:
-            agent.update_networks(s1=augmented_states[count],
-                                  s2=next_augmented_state,
-                                  F=RLS.gradient_state(),
-                                  G=RLS.gradient_action(),
-                                  dr_ds=dr_ds
-                                  )
-
+    # Collective:
+    if update_col:
+        rewards[0], dr_ds = agents[0].get_reward(next_observation, ref)
+        F, G = agents[0].get_transition_matrices(RLS)
+        agents[0].update_networks(observation, next_observation, ref, next_ref, dr_ds, F, G)
+    else:
+        rewards[0] = 0
 
 
     # Log data
@@ -131,40 +201,35 @@ while not done:
                   'lon': actions[1],
                   'lat': actions[2],
                   'ped': actions[3],
-                  'r1': reward[0],
-                  'r2': reward[1]})
+                  'r1': rewards[0],
+                  'r2': rewards[1]})
 
-    rls_stats['t'].append(env.t)
-    rls_stats['ws'].append(RLS.gradient_state().ravel())
-    rls_stats['wa_col'].append(RLS.gradient_action()[:12, 0].ravel())
-    rls_stats['wa_cyc'].append(RLS.gradient_action()[:12, 1].ravel())
-
-    if ((int(env.t / env.dt)) % 10 == 0) and save_weights:
-        weight_stats['t'].append(env.t)
-        weight_stats['wci'].append(LonAgent.critic.trainable_weights[0].numpy().ravel().copy())
-        weight_stats['wco'].append(LonAgent.critic.trainable_weights[1].numpy().ravel().copy())
-        weight_stats['wai'].append(LonAgent.actor.trainable_weights[0].numpy().ravel().copy())
-        weight_stats['wao'].append(LonAgent.actor.trainable_weights[1].numpy().ravel().copy())
+    # Save NN and RLS weights
+    weight_stats['t'].append(env.t)
+    if save_weights and step % 10 == 0:
+        for agent in agents:
+            for nn, network_name in zip(agent_col.networks, network_sequence):
+                for layer, layer_name in zip(nn.parameters(), layer_sequence):
+                    weight_stats[agent.control_channel_str]['nn'][network_name][layer_name].append(layer.detach().numpy().ravel())
+            tmp_F, tmp_G = agent.get_transition_matrices(RLS)
+            weight_stats[agent.control_channel_str]['rls']['F'].append(tmp_F.detach().numpy().ravel())
+            weight_stats[agent.control_channel_str]['rls']['G'].append(tmp_G.detach().numpy().ravel())
 
     if env.t > 90 or abs(observation[7]) > np.deg2rad(89) or abs(observation[6]) > np.deg2rad(89):
         done = True
 
-    if 8 < env.t < 16:
-        update_agent = [True, True]
-    if env.t > 16:
-        excitation_phase = False
-        update_agent = [True, True]
-
     # Next step..
     observation = next_observation
-    step += 1
+    ref = next_ref
 
+    if np.isnan(actions).any():
+        print("NaN encounted in actions at timestep", step, " -- ", actions)
+        break
+
+    if done:
+        break
+
+t2 = time.time()
+print("Training time: ", t2 - t_start)
 stats = pd.DataFrame(stats)
-if save_weights:
-    weights = {'wci': pd.DataFrame(data=weight_stats['wci'], index=weight_stats['t']),
-               'wco': pd.DataFrame(data=weight_stats['wco'], index=weight_stats['t']),
-               'wai': pd.DataFrame(data=weight_stats['wai'], index=weight_stats['t']),
-               'wao': pd.DataFrame(data=weight_stats['wao'], index=weight_stats['t'])}
-    plot_neural_network_weights_2(weights)
 plot_stats_6dof(stats)
-plot_rls_stats(rls_stats)
