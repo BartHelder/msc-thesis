@@ -36,8 +36,33 @@ torch.manual_seed(1)
 np.random.seed(0)
 
 # Some parameters
-params_cyclic = {}
-params_collective = {}
+agent_parameters = {'col':
+                    {'control_channel': 'col',
+                     'discount_factor': 0.9,
+                     'n_hidden_actor': 10,
+                     'nn_stdev_actor': 0.1,
+                     'learning_rate_actor': 0.1,
+                     'action_scaling': 5,
+                     'n_hidden_critic': 10,
+                     'nn_stdev_critic': 0.1,
+                     'learning_rate_critic': 0.1,
+                     'tau_target_critic': 0.01,
+                     'tracked_state': 1,
+                     'ac_states': [3],
+                     'reward_weight': 0.01},
+                    'lon':
+                    {'control_channel': 'lon',
+                     'discount_factor': 0.95,
+                     'n_hidden_actor': 10,
+                     'nn_stdev_actor': 0.75,
+                     'learning_rate_actor': 0.4,
+                     'action_scaling': 10,
+                     'n_hidden_critic': 10,
+                     'nn_stdev_critic': 0.75,
+                     'learning_rate_critic': 0.4,
+                     'tau_target_critic': 0.01,
+                     'tracked_state': 5,
+                     'ac_states': [4]}}
 
 V_INITIAL = 0
 dt = 0.01
@@ -61,33 +86,8 @@ RLS = RecursiveLeastSquares(**{'state_size': 7,
 # Agents:
 #  Neural networks
 
-agent_col = DHPAgent(control_channel='col',
-                     discount_factor=0.9,
-                     n_hidden_actor=10,
-                     nn_stdev_actor=0.1,
-                     learning_rate_actor=0.1,
-                     action_scaling=5,
-                     n_hidden_critic=10,
-                     nn_stdev_critic=0.1,
-                     learning_rate_critic=0.1,
-                     tau_target_critic=0.01,
-                     tracked_state=1,
-                     ac_states=[3],
-                     reward_weight=0.01
-                     )
-
-agent_lon = DHPAgent(control_channel='lon',
-                     discount_factor=0.95,
-                     n_hidden_actor=10,
-                     nn_stdev_actor=0.75,
-                     learning_rate_actor=0.4,
-                     action_scaling=10,
-                     n_hidden_critic=10,
-                     nn_stdev_critic=0.75,
-                     learning_rate_critic=0.4,
-                     tau_target_critic=0.01,
-                     tracked_state=5,
-                     ac_states=[4])
+agent_col = DHPAgent(**agent_parameters['col'])
+agent_lon = DHPAgent(**agent_parameters['lon'])
 
 agents = [agent_col, agent_lon]
 
@@ -96,10 +96,10 @@ excitation = np.zeros((1000, 2))
 # for j in range(400):
 #     #excitation[j, 1] = -np.sin(np.pi * j / 50)
 #     #excitation[j + 400, 1] = np.sin(2 * np.pi * j / 50) * 2
-# excitation = np.deg2rad(excitation)
+excitation = np.deg2rad(excitation)
 
 # Bookkeeping
-excitation_phase = True
+excitation_phase = False
 done = False
 step = 0
 rewards = np.zeros(2)
@@ -120,7 +120,7 @@ for step in range(n_steps):
 
     # Get ref, action, take action
     if step < 6000:
-        actions = np.array([np.deg2rad(5), # + agent_col.get_action(obs, ref),
+        actions = np.array([np.deg2rad(5),  # + agent_col.get_action(obs, ref),
                             trim_action[1] + agent_lon.get_action(obs, ref)])
     else:
         actions = np.array([trim_action[0] + agent_col.get_action(obs, ref),
@@ -149,9 +149,6 @@ for step in range(n_steps):
         agents[0].update_networks(obs, next_obs, ref, next_ref, dr_ds, F, G)
     else:
         rewards[0] = 0
-
-
-
 
     # Log data
     stats.append({'t': env.t,
