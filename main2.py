@@ -32,27 +32,16 @@ class Logger:
 
 
 t0 = time.time()
-torch.manual_seed(0)
+torch.manual_seed(1)
 np.random.seed(0)
 
 # Some parameters
 params_cyclic = {}
 params_collective = {}
 
-V_INITIAL = 20
-TRACKED_STATE = 5
-AC_STATES = [4]
-NN_INPUTS = len(AC_STATES)+1
-NN_HIDDEN = 10
-NN_STDEV = 1
-state_indices = AC_STATES + [TRACKED_STATE]
-reward_weight = 1
-lr_actor = 0.4
-lr_critic = 0.4
-gamma = 0.95
-tau = 0.01
+V_INITIAL = 0
 dt = 0.01
-t_max = 120
+t_max = 180
 n_steps = int(t_max / dt)
 
 # EnvironmentSt
@@ -61,7 +50,6 @@ env = Helicopter3DOF(dt=dt, t_max=t_max)
 env.setup_from_config(task="sinusoid", config_path=config_path)
 obs, trim_action = env.reset(v_initial=V_INITIAL)
 ref = env.get_ref()
-dr_ds = torch.zeros((1, len(AC_STATES)+1))
 
 # incremental RLS estimator
 RLS = RecursiveLeastSquares(**{'state_size': 7,
@@ -74,33 +62,32 @@ RLS = RecursiveLeastSquares(**{'state_size': 7,
 #  Neural networks
 
 agent_col = DHPAgent(control_channel='col',
-                     discount_factor=0.95,
+                     discount_factor=0.9,
                      n_hidden_actor=10,
                      nn_stdev_actor=0.1,
-                     learning_rate_actor=0.4,
+                     learning_rate_actor=0.1,
                      action_scaling=5,
                      n_hidden_critic=10,
                      nn_stdev_critic=0.1,
-                     learning_rate_critic=0.4,
+                     learning_rate_critic=0.1,
                      tau_target_critic=0.01,
                      tracked_state=1,
-                     ac_states=[3]
+                     ac_states=[3],
+                     reward_weight=0.01
                      )
 
 agent_lon = DHPAgent(control_channel='lon',
                      discount_factor=0.95,
                      n_hidden_actor=10,
-                     nn_stdev_actor=1,
+                     nn_stdev_actor=0.75,
                      learning_rate_actor=0.4,
                      action_scaling=10,
                      n_hidden_critic=10,
-                     nn_stdev_critic=1,
+                     nn_stdev_critic=0.75,
                      learning_rate_critic=0.4,
                      tau_target_critic=0.01,
                      tracked_state=5,
                      ac_states=[4])
-#  PID
-#collective_controller = CollectivePID(dt=dt)
 
 agents = [agent_col, agent_lon]
 
@@ -118,13 +105,27 @@ step = 0
 rewards = np.zeros(2)
 stats = []
 t_start = time.time()
+update_col = False
+update_lon = True
 
 #  Main loop
 for step in range(n_steps):
 
+    if step == 6000:
+        update_col = True
+        update_lon = True
+    # if step == 12000:
+    #     update_col = True
+    #     update_lon = True
+
     # Get ref, action, take action
-    actions = np.array([trim_action[0] + agent_col.get_action(obs, ref),
-                        trim_action[1] + agent_lon.get_action(obs, ref)])
+    if step < 6000:
+        actions = np.array([np.deg2rad(5), # + agent_col.get_action(obs, ref),
+                            trim_action[1] + agent_lon.get_action(obs, ref)])
+    else:
+        actions = np.array([trim_action[0] + agent_col.get_action(obs, ref),
+                            trim_action[1] + agent_lon.get_action(obs, ref)])
+
     if excitation_phase:
         actions += excitation[step]
     next_obs, _, done = env.step(actions)
@@ -133,10 +134,24 @@ for step in range(n_steps):
     # Update RLS estimator,
     RLS.update(obs, actions, next_obs)
 
-    for agent, i in zip(agents, count()):
-        rewards[i], dr_ds = agent.get_reward(next_obs, ref)
-        F, G = agent.get_transition_matrices(RLS)
-        agent.update_networks(obs, next_obs, ref, next_ref, dr_ds, F, G)
+    # Cyclic
+    if update_lon:
+        rewards[1], dr_ds = agents[1].get_reward(next_obs, ref)
+        F, G = agents[1].get_transition_matrices(RLS)
+        agents[1].update_networks(obs, next_obs, ref, next_ref, dr_ds, F, G)
+    else:
+        rewards[1] = 0
+
+    # Collective:
+    if update_col:
+        rewards[0], dr_ds = agents[0].get_reward(next_obs, ref)
+        F, G = agents[0].get_transition_matrices(RLS)
+        agents[0].update_networks(obs, next_obs, ref, next_ref, dr_ds, F, G)
+    else:
+        rewards[0] = 0
+
+
+
 
     # Log data
     stats.append({'t': env.t,

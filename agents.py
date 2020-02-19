@@ -113,7 +113,7 @@ class DHPAgent:
         :param reference:
         :return:
         """
-        augmented_state = [state[x] for x in self.ac_states] + [reference[self.tracked_state]-state[self.tracked_state]]
+        augmented_state = [state[x] for x in self.ac_states] + [state[self.tracked_state] - reference[self.tracked_state]]
         return torch.tensor(augmented_state, requires_grad=True)
 
     def update_networks(self, state, next_state, ref, next_ref, dr_ds, F, G):

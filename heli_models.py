@@ -226,7 +226,7 @@ class Helicopter3DOF:
     def get_ref(self):
         t = self.t + self.dt
         Kp, Ki, Kd = self.pid_weights
-        ref = 15
+        ref = 10
         x = np.pi * t / 10
         # if self.t < 20:
         #     ref = 0

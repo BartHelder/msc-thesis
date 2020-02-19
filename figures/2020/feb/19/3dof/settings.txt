@@ -1,0 +1,35 @@
+agent_col = DHPAgent(control_channel='col',
+                     discount_factor=0.9,
+                     n_hidden_actor=10,
+                     nn_stdev_actor=0.1,
+                     learning_rate_actor=0.1,
+                     action_scaling=5,
+                     n_hidden_critic=10,
+                     nn_stdev_critic=0.1,
+                     learning_rate_critic=0.1,
+                     tau_target_critic=0.01,
+                     tracked_state=1,
+                     ac_states=[3],
+                     reward_weight=0.01
+                     )
+
+agent_lon = DHPAgent(control_channel='lon',
+                     discount_factor=0.95,
+                     n_hidden_actor=10,
+                     nn_stdev_actor=0.75,
+                     learning_rate_actor=0.4,
+                     action_scaling=10,
+                     n_hidden_critic=10,
+                     nn_stdev_critic=0.75,
+                     learning_rate_critic=0.4,
+                     tau_target_critic=0.01,
+                     tracked_state=5,
+                     ac_states=[4])
+
+Excitation signal: none
+training strategy:
+    Vinit: 0
+    Aq_ref = 10deg/s
+    href = 0
+    t < 60s  Collective: 5deg, no train | Lon: Trim + ACD, train
+    t > 60s: Col + Lat: trim + ACD, train
