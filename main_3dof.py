@@ -25,7 +25,7 @@ class Logger:
         self.timestamp = datetime.datetime.now()
         self.agents = defaultdict(dict)
         for n in range(n_agents):
-            self.agents['agent_'+str(n)]
+            self.agents['agent_'+str(n)] = {}
 
     def load(self, filepath):
         return
@@ -63,7 +63,11 @@ agent_parameters = {'col':
                      'tau_target_critic': 0.01,
                      'tracked_state': 5,
                      'ac_states': [4]}}
-
+rls_parameters = {'state_size': 7,
+                  'action_size': 2,
+                  'gamma': 1,
+                  'covariance': 10**8,
+                  'constant': False}
 V_INITIAL = 0
 dt = 0.01
 t_max = 180
@@ -77,18 +81,11 @@ obs, trim_action = env.reset(v_initial=V_INITIAL)
 ref = env.get_ref()
 
 # incremental RLS estimator
-RLS = RecursiveLeastSquares(**{'state_size': 7,
-                               'action_size': 2,
-                               'gamma': 1,
-                               'covariance': 10**8,
-                               'constant': False})
+RLS = RecursiveLeastSquares(**rls_parameters)
 
 # Agents:
-#  Neural networks
-
 agent_col = DHPAgent(**agent_parameters['col'])
 agent_lon = DHPAgent(**agent_parameters['lon'])
-
 agents = [agent_col, agent_lon]
 
 # Excitation signal for the RLS estimator
@@ -103,25 +100,56 @@ excitation_phase = False
 done = False
 step = 0
 rewards = np.zeros(2)
-stats = []
 t_start = time.time()
 update_col = False
 update_lon = True
 
+stats = []
+network_sequence = ['a', 'c', 'tc']
+layer_sequence = ['i', 'o']
+
+weight_stats = {'t': [],
+                'col':
+                    {'nn': {
+                        'a': {'i': [],
+                              'o': []},
+                        'c': {'i': [],
+                              'o': []},
+                        'tc': {'i': [],
+                               'o': []}
+                            },
+                     'rls': {'F': [],
+                             'G': []
+                             }
+                     },
+                'lon': {
+                    'nn': {
+                        'a': {'i': [],
+                              'o': []},
+                        'c': {'i': [],
+                              'o': []},
+                        'tc': {'i': [],
+                               'o': []}
+                            },
+                    'rls': {'F': [],
+                            'G': []}
+                     }
+                }
+
 #  Main loop
 for step in range(n_steps):
+
+    if step == 800:
+        excitation_phase = False
 
     if step == 6000:
         update_col = True
         update_lon = True
-    # if step == 12000:
-    #     update_col = True
-    #     update_lon = True
 
     # Get ref, action, take action
     if step < 6000:
         actions = np.array([np.deg2rad(5),  # + agent_col.get_action(obs, ref),
-                            trim_action[1] + agent_lon.get_action(obs, ref)])
+                           trim_action[1] + agent_lon.get_action(obs, ref)])
     else:
         actions = np.array([trim_action[0] + agent_col.get_action(obs, ref),
                             trim_action[1] + agent_lon.get_action(obs, ref)])
@@ -164,6 +192,17 @@ for step in range(n_steps):
                   'r1': rewards[0],
                   'r2': rewards[1]})
 
+    # Save NN and RLS weights
+    weight_stats['t'].append(env.t)
+    if step % 10 == 0:
+        for agent in agents:
+            for nn, network_name in zip(agent_col.networks, network_sequence):
+                for layer, layer_name in zip(nn.parameters(), layer_sequence):
+                    weight_stats[agent.control_channel_str]['nn'][network_name][layer_name].append(layer.detach().numpy().ravel())
+            tmp_F, tmp_G = agent.get_transition_matrices(RLS)
+            weight_stats[agent.control_channel_str]['rls']['F'].append(tmp_F.detach().numpy().ravel())
+            weight_stats[agent.control_channel_str]['rls']['G'].append(tmp_G.detach().numpy().ravel())
+
     # Next step
     obs = next_obs
     ref = next_ref
@@ -171,9 +210,6 @@ for step in range(n_steps):
     if np.isnan(actions).any():
         print("NaN encounted in actions at timestep", step, " -- ", actions)
         break
-
-    if step == 800:
-        excitation_phase = False
 
     if done:
         break

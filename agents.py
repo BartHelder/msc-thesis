@@ -62,9 +62,9 @@ class DHPAgent:
         :param ac_states: Auxiliary states also fed into the ACD
         :param reward_weight:
         """
-
+        self.control_channel_str = control_channel
         self.control_channel_mapping = {'col': 0, 'lon': 1, 'lat': 2, 'ped': 3}
-        self.control_channel = self.control_channel_mapping[control_channel]
+        self.control_channel_num = self.control_channel_mapping[control_channel]
 
         self.tracked_state = tracked_state
         self.ac_states = ac_states
@@ -73,6 +73,8 @@ class DHPAgent:
         self.actor = DHPActor(ni=self.n_inputs, nh=n_hidden_actor, std=nn_stdev_actor, scaling=action_scaling)
         self.critic = DHPCritic(ni=self.n_inputs, nh=n_hidden_critic, std=nn_stdev_critic)
         self.target_critic = copy.deepcopy(self.critic)
+
+        self.networks = [self.actor, self.critic, self.target_critic]
 
         self.learning_rate_actor = learning_rate_actor
         self.learning_rate_critic = learning_rate_critic
@@ -103,7 +105,7 @@ class DHPAgent:
         """
         state_indices = self.ac_states + [self.tracked_state]
         F = RLS.gradient_state()[np.ix_(state_indices, state_indices)]
-        G = RLS.gradient_action()[np.ix_(state_indices, [self.control_channel])]
+        G = RLS.gradient_action()[np.ix_(state_indices, [self.control_channel_num])]
         return torch.tensor(F, dtype=torch.float), torch.tensor(G, dtype=torch.float)
 
     def augment_state(self, state, reference):
