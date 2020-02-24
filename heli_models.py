@@ -355,11 +355,11 @@ class Helicopter3DOF:
 
 class Helicopter6DOF:
 
-    def __init__(self, dt=0.02):
+    def __init__(self, dt, t_max):
 
         self.dt = dt
         self.t = 0
-        self.t_max = 240
+        self.t_max = t_max
         self.g = 9.80665  # Gravitational acceleration               [m/s^2]
         self.R = 287.05  # Specific gas constant of air             [J/kg/K]
         self.T0 = 288.15  # Sea level temperature in ISA             [K]
