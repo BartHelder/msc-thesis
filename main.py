@@ -9,7 +9,7 @@ from agents import DHPAgent
 from model import RecursiveLeastSquares
 from heli_models import Helicopter3DOF
 from heli_models import Helicopter6DOF
-from plotting import plot_neural_network_weights_2, plot_stats_6dof, plot_policy_function, plot_rls_stats
+from plotting import plot_neural_network_weights, plot_stats_6dof, plot_policy_function, plot_rls_stats
 from PID import LatPedPID, CollectivePID6DOF
 
 # + np.sin(2 * np.pi * t / 10)
@@ -196,19 +196,20 @@ while not done:
     # Update RLS estimator,
     RLS.update(observation, actions[:2], next_observation)
 
+    def update_agent(n):
+        rewards[n], dr_ds = agents[n].get_reward(next_observation, ref)
+        F, G = agents[n].get_transition_matrices(RLS)
+        agents[n].update_networks(observation, next_observation, ref, next_ref, dr_ds, F, G)
+
     # Cyclic
     if update_lon:
-        rewards[1], dr_ds = agents[1].get_reward(next_observation, ref)
-        F, G = agents[1].get_transition_matrices(RLS)
-        agents[1].update_networks(observation, next_observation, ref, next_ref, dr_ds, F, G)
+        update_agent(1)
     else:
         rewards[1] = 0
 
     # Collective:
     if update_col:
-        rewards[0], dr_ds = agents[0].get_reward(next_observation, ref)
-        F, G = agents[0].get_transition_matrices(RLS)
-        agents[0].update_networks(observation, next_observation, ref, next_ref, dr_ds, F, G)
+        update_agent(0)
     else:
         rewards[0] = 0
 
@@ -262,4 +263,17 @@ while not done:
 t2 = time.time()
 print("Training time: ", t2 - t_start)
 stats = pd.DataFrame(stats)
+
+weights = {'col':
+               {'ci': pd.DataFrame(data=weight_stats['col']['nn']['c']['i'], index=weight_stats['t']),
+                'co': pd.DataFrame(data=weight_stats['col']['nn']['c']['o'], index=weight_stats['t']),
+                'ai': pd.DataFrame(data=weight_stats['col']['nn']['a']['i'], index=weight_stats['t']),
+                'ao': pd.DataFrame(data=weight_stats['col']['nn']['a']['o'], index=weight_stats['t'])},
+           'lon':
+               {'ci': pd.DataFrame(data=weight_stats['lon']['nn']['c']['i'], index=weight_stats['t']),
+               'co': pd.DataFrame(data=weight_stats['lon']['nn']['c']['o'], index=weight_stats['t']),
+               'ai': pd.DataFrame(data=weight_stats['lon']['nn']['a']['i'], index=weight_stats['t']),
+               'ao': pd.DataFrame(data=weight_stats['lon']['nn']['a']['o'], index=weight_stats['t'])}}
+
 plot_stats_6dof(stats, results_only=False)
+plot_neural_network_weights(weights['col'])

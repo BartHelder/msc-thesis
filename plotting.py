@@ -406,37 +406,39 @@ def plot_stats_6dof(df: pd.DataFrame, results_only=False, color_palette=None):
         #
         # plt.show()
 
-def plot_neural_network_weights(data):
+def plot_neural_network_weights(agent_weights: dict):
+
+    w = agent_weights
     sns.set()
     sns.set_context('paper')
 
     plt.figure(figsize=FIGSIZE)
-    sns.lineplot(data=data['wci'], dashes=False, legend=False,
-                 palette=sns.color_palette("hls", len(data['wci'].columns)))
+    sns.lineplot(data=w['ci'], dashes=False, legend=False,
+                 palette=sns.color_palette("hls", len(w['ci'].columns)))
     plt.xlabel('Time [s]')
     plt.ylabel('Neuron weight [-]')
     plt.title('Critic weights - input to hidden')
     plt.show()
 
     plt.figure(figsize=FIGSIZE)
-    sns.lineplot(data=data['wco'], dashes=False, legend=False,
-                 palette=sns.color_palette("hls", len(data['wco'].columns)))
+    sns.lineplot(data=w['co'], dashes=False, legend=False,
+                 palette=sns.color_palette("hls", len(w['co'].columns)))
     plt.xlabel('Time [s]')
     plt.ylabel('Neuron weight [-]')
     plt.title('Critic weights - hidden to output')
     plt.show()
 
     plt.figure(figsize=FIGSIZE)
-    sns.lineplot(data=data['wai'], dashes=False, legend=False,
-                 palette=sns.color_palette("hls", len(data['wai'].columns)))
+    sns.lineplot(data=w['ai'], dashes=False, legend=False,
+                 palette=sns.color_palette("hls", len(w['ai'].columns)))
     plt.xlabel('Time [s]')
     plt.ylabel('Neuron weight [-]')
     plt.title('Actor weights - input to hidden')
     plt.show()
 
     plt.figure(figsize=FIGSIZE)
-    sns.lineplot(data=data['wao'], dashes=False, legend=False,
-                 palette=sns.color_palette("hls", len(data['wao'].columns)))
+    sns.lineplot(data=w['ao'], dashes=False, legend=False,
+                 palette=sns.color_palette("hls", len(w['ao'].columns)))
     plt.xlabel('Time [s]')
     plt.ylabel('Neuron weight [-]')
     plt.title('Actor weights - hidden to output')
