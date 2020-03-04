@@ -25,7 +25,7 @@
       "tracked_state": 11,
       "actor_critic_states": [2] },
     "lateralPID":
-      {"Ky": 0.010,
+      {"Ky": 0.0025,
       "Ky_int": 0.0002,
       "Ky_dot": -0.04,
       "Kphi": 3,

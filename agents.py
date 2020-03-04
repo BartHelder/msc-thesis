@@ -171,7 +171,7 @@ class DHPAgent:
         torch.save({
             "actor_state_dict": self.actor.state_dict(),
             "critic_state_dict": self.critic.state_dict(),
-            "target_critic_state_dict": self.target_critic()
+            "target_critic_state_dict": self.target_critic.state_dict()
         }, path)
 
     def load(self, path):
