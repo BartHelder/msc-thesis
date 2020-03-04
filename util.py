@@ -97,7 +97,7 @@ def get_ref(obs, t, t_switch, z_ref_start, A):
     ref = np.nan * np.ones_like(obs)
     if t < t_switch:
         ref[11] = 0
-        theta_ref = np.deg2rad(A * (np.sin(2 * np.pi * t / 6)))
+        theta_ref = np.deg2rad(A * (np.sin(2 * np.pi * t / 10)))
         # if np.rad2deg(obs[7]) > 20:
         #     qref -= 2 * abs(obs[7]-np.deg2rad(20))
         # elif np.rad2deg(obs[7]) < -20:
@@ -105,7 +105,7 @@ def get_ref(obs, t, t_switch, z_ref_start, A):
     else:
         # qref = np.clip(-obs[7] * 0.5, -np.deg2rad(5), np.deg2rad(5))
         theta_ref = np.deg2rad(-1.5)
-        ref[11] = (z_ref_start - 20 * np.sin((t - 60) / 10))
+        ref[11] = (z_ref_start - 20 * np.sin((t - t_switch) / 10))
     ref[7] = theta_ref
     zref = 0
     #ref[11] = zref

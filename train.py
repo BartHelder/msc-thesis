@@ -15,16 +15,16 @@ from heli_models import Helicopter6DOF
 from PID import LatPedPID, CollectivePID6DOF
 from util import Logger, get_ref, envelope_limits_reached, plot_rls_weights, plot_neural_network_weights, plot_stats
 
-def train(env_params, ac_params, rls_params, path, seed=0, weight_save_interval=10, save_logs=False, save_weights=False, save_agents=False,
-          plot_states=True, plot_nn_weights=False, plot_rls=False, ):
+
+def train(env_params, ac_params, rls_params, path, seed=0, weight_save_interval=10, save_logs=False, save_weights=False,
+          save_agents=False, plot_states=True, plot_nn_weights=False, plot_rls=False):
 
     torch.manual_seed(seed)
     np.random.seed(seed)
-    # Logging
-    logger = Logger(params=ac_params)
 
     # Environment
-    env = Helicopter6DOF(dt=env_params['dt'], t_max=env_params['t_max'])
+    env = Helicopter6DOF(dt=env_params['dt'],
+                         t_max=env_params['t_max'])
     trim_state, trim_actions = env.trim(trim_speed=env_params['initial_velocity'],
                                         flight_path_angle=env_params['initial_flight_path_angle'],
                                         altitude=env_params['initial_altitude'])
@@ -33,6 +33,9 @@ def train(env_params, ac_params, rls_params, path, seed=0, weight_save_interval=
 
     # incremental RLS estimator
     RLS = RecursiveLeastSquares(**rls_params)
+
+    # Logging
+    logger = Logger(params=ac_params)
 
     # Agents:
     agent_col = DHPAgent(**ac_params['col'])
@@ -46,8 +49,7 @@ def train(env_params, ac_params, rls_params, path, seed=0, weight_save_interval=
     ColController = CollectivePID6DOF(col_trim=trim_actions[0],
                                       h_ref=env_params['initial_altitude'],
                                       dt=env_params['dt'],
-                                      proportional_gain=0.005
-                                      )
+                                      proportional_gain=0.005)
 
     # Excitation signal for the RLS estimator
     excitation = np.zeros((1000, 2))
@@ -102,7 +104,7 @@ def train(env_params, ac_params, rls_params, path, seed=0, weight_save_interval=
             A = 15
         else:
             A = 20
-        next_ref = get_ref(next_observation, env.t, env_params['step_switch'], z_ref_start, A)
+        next_ref = get_ref(obs=next_observation, t=env.t, t_switch=env_params['t_switch'], z_ref_start=z_ref_start, A=A)
         # Update RLS estimator,
         RLS.update(observation, actions[:2], next_observation)
 
@@ -141,8 +143,7 @@ def train(env_params, ac_params, rls_params, path, seed=0, weight_save_interval=
             print("NaN encounted in actions at timestep", step, " -- ", actions)
             done = True
 
-    t2 = time.time()
-    print("Training time: ", t2-t_start)
+    print("Training time: ", time.time()-t_start)
     logger.finalize()
 
     if not os.path.exists(path) and (save_logs or save_agents):
@@ -152,11 +153,10 @@ def train(env_params, ac_params, rls_params, path, seed=0, weight_save_interval=
         logger.save(path=path+"log.pkl")
 
     if save_agents:
-        agent_col.save(path="saved_models/mar/3/col.pt")
-        agent_lon.save(path="saved_models/mar/3/lon.pt")
+        agent_col.save(path="saved_models/mar/4/col.pt")
+        agent_lon.save(path="saved_models/mar/4/lon.pt")
 
     # Visualization
-    color_palette = None
     sns.set(context='paper')
     if plot_states:
         plot_stats(logger)
@@ -168,3 +168,4 @@ def train(env_params, ac_params, rls_params, path, seed=0, weight_save_interval=
     if plot_rls:
         plot_rls_weights(logger)
 
+    return logger
