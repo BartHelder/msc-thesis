@@ -1,4 +1,5 @@
 import numpy as np
+import pickle
 
 class RecursiveLeastSquares:
 
@@ -86,3 +87,7 @@ class RecursiveLeastSquares:
 
     def reset_covariance(self):
         self.cov = np.identity(self.nb_coefficients) * self.covariance
+
+    def save(self, path):
+        with open(path, 'wb') as f:
+            pickle.dump(self, f)

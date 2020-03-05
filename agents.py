@@ -158,10 +158,10 @@ class DHPAgent:
                 # .sub_() is in-place substraction - fast en memory-efficient
                 wa.data.sub_(wa.grad.data * (-target.mm(G).squeeze(dim=0)) * self.learning_rate_actor)
                 wc.data.sub_(wc.grad.data * self.learning_rate_critic)
-            # In PyTorch, gradients accumulate rather than overwrite, so after updating they must be zeroed:
-            self.critic.zero_grad()
-            self.actor.zero_grad()
-            self.target_critic.zero_grad()  # I don't think these have a value inside of them but just to be sure...
+        # In PyTorch, gradients accumulate rather than overwrite, so after updating they must be zeroed:
+        self.critic.zero_grad()
+        self.actor.zero_grad()
+        self.target_critic.zero_grad()  # I don't think these have a value inside of them but just to be sure...
 
         # Update target network - copy_() is a fast and memory-unintensive value overwrite
         for target_param, param in zip(self.target_critic.parameters(), self.critic.parameters()):
@@ -176,6 +176,6 @@ class DHPAgent:
 
     def load(self, path):
         checkpoint = torch.load(path)
-        self.actor.load_state_dict(checkpoint("actor_state_dict"))
+        self.actor.load_state_dict(checkpoint["actor_state_dict"])
         self.critic.load_state_dict(checkpoint["critic_state_dict"])
         self.target_critic.load_state_dict(checkpoint["target_critic_state_dict"])

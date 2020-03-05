@@ -98,18 +98,10 @@ def get_ref(obs, t, t_switch, z_ref_start, A):
     if t < t_switch:
         ref[11] = 0
         theta_ref = np.deg2rad(A * (np.sin(2 * np.pi * t / 10)))
-        # if np.rad2deg(obs[7]) > 20:
-        #     qref -= 2 * abs(obs[7]-np.deg2rad(20))
-        # elif np.rad2deg(obs[7]) < -20:
-        #     qref += 2 * abs(obs[7] + np.deg2rad(20))
     else:
-        # qref = np.clip(-obs[7] * 0.5, -np.deg2rad(5), np.deg2rad(5))
         theta_ref = np.deg2rad(-1.5)
-        ref[11] = (z_ref_start - 20 * np.sin((t - t_switch) / 10))
+        ref[11] = (z_ref_start - 20 * np.sin(2*np.pi*(t - t_switch) / 10))
     ref[7] = theta_ref
-    zref = 0
-    #ref[11] = zref
-    max_zref_deviation = 5
 
     return ref
 
@@ -143,7 +135,7 @@ class FirstOrderLag:
         self.setpoint = setpoint
 
 
-def get_ref_2(obs, t, dt, int_error_u):
+def get_ref_2(obs, dt, int_error_u):
     ref = np.nan * np.ones_like(obs)
     u_ref = 30
     u_err = u_ref - obs[2]

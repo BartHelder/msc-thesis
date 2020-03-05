@@ -5,7 +5,7 @@ import json
 
 import torch
 
-from params import env_params, ac_params, rls_params, pid_params, path
+from params import env_params, ac_params_train, rls_params, pid_params, path
 
 training_logs,  = train(env_params=env_params,
                       ac_params=ac_params,
