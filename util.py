@@ -142,14 +142,12 @@ class FirstOrderLag:
         self.x0 = original
         self.setpoint = setpoint
 
+
 def get_ref_2(obs, t, dt, int_error_u):
     ref = np.nan * np.ones_like(obs)
     u_ref = 30
     u_err = u_ref - obs[2]
     pitch_ref = np.deg2rad(-1 * u_err + -0.05 * int_error_u)
-    q_ref = 2 * pitch_ref
-    q = obs[4]
-    q_err = q_ref - q
     int_error_u += u_err * dt
     ref[0] = u_ref
     ref[7] = pitch_ref
@@ -286,8 +284,8 @@ def plot_rls_weights(log):
                       r'$\frac{\partial z}{\partial \theta_0}$']
 
     wa_lon = log.weight_history['lon']['dsda']
-    wa_lon.columns = [r'$\frac{\partial \theta}{\partial \theta_{1s}}}$',
-                   r'$\frac{\partial q}{\partial \theta_{1s}}$']
+    wa_lon.columns = [r'$\frac{\partial q}{\partial \theta_{1s}}}$',
+                      r'$\frac{\partial \theta}{\partial \theta_{1s}}$']
 
     plt.figure()
     sns.lineplot(data=wa_col, dashes=False, legend='full', palette=sns.color_palette("hls", len(wa_col.columns)))
@@ -297,7 +295,7 @@ def plot_rls_weights(log):
     plt.show()
 
     plt.figure()
-    sns.lineplot(data=wa_lon, dashes=True, legend='full', palette=sns.color_palette("hls", len(wa_lon.columns)))
+    sns.lineplot(data=wa_lon, dashes=False, legend='full', palette=sns.color_palette("hls", len(wa_lon.columns)))
     plt.xlabel('Time [s]')
     plt.ylabel('Gradient size [-]')
     plt.title('iRLS Cyclic gradients')

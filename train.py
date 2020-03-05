@@ -16,8 +16,8 @@ from PID import LatPedPID, CollectivePID6DOF
 from util import Logger, get_ref, envelope_limits_reached, plot_rls_weights, plot_neural_network_weights, plot_stats
 
 
-def train(env_params, ac_params, rls_params, path, seed=0, weight_save_interval=10, save_logs=False, save_weights=False,
-          save_agents=False, plot_states=True, plot_nn_weights=False, plot_rls=False):
+def train(env_params, ac_params, rls_params, pid_params, path, seed=0, weight_save_interval=10, return_logs=True,
+          save_logs=False, save_weights=False, save_agents=False, plot_states=True, plot_nn_weights=False, plot_rls=False):
 
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -42,34 +42,38 @@ def train(env_params, ac_params, rls_params, path, seed=0, weight_save_interval=
     agent_lon = DHPAgent(**ac_params['lon'])
     agents = [agent_col, agent_lon]
     # Create controllers
-    LatPedController = LatPedPID(config_path='config_6dof.json',
-                                 phi_trim=trim_state[6],
+    LatPedController = LatPedPID(phi_trim=trim_state[6],
                                  lat_trim=trim_actions[2],
-                                 pedal_trim=trim_actions[3])
+                                 pedal_trim=trim_actions[3],
+                                 dt=env_params["dt"],
+                                 gains_dict=pid_params)
     ColController = CollectivePID6DOF(col_trim=trim_actions[0],
                                       h_ref=env_params['initial_altitude'],
                                       dt=env_params['dt'],
-                                      proportional_gain=0.005)
+                                      proportional_gain=pid_params['Kh'])
 
     # Excitation signal for the RLS estimator
-    excitation = np.zeros((1000, 2))
-    # for j in range(400):
-    #     #excitation[j, 1] = -np.sin(np.pi * j / 50)
+    excitation = np.zeros((1000, 4))
+    for j in range(400):
+        excitation[j, 1] = -np.sin(2*np.pi * j / 50) * np.exp(-j/100)
     #     #excitation[j + 400, 1] = np.sin(2 * np.pi * j / 50) * 2
     excitation = np.deg2rad(excitation)
 
     # Flags
-    excitation_phase = False
+    excitation_phase = True
     done = False
     update_col = False
     update_lon = True
-
+    success = True
     rewards = np.zeros(2)
     t_start = time.time()
     step = 0
     z_ref_start = 0
 
     while not done:
+
+        if step == 1000:
+            excitation_phase = False
 
         if step == env_params['step_switch']:
             z_ref_start = logger.state_history[-1]['z']
@@ -130,8 +134,9 @@ def train(env_params, ac_params, rls_params, path, seed=0, weight_save_interval=
             logger.log_weights(env.t, agents, RLS)
 
         if envelope_limits_reached(observation)[0]:
-            print("Save envelope limits reached, stopping simulation. ")
-            print("Cause of violation: " + envelope_limits_reached(observation)[1])
+            # print("Save envelope limits reached, stopping simulation. Seed: " + str(seed))
+            # print("Cause of violation: " + envelope_limits_reached(observation)[1])
+            success = False
             done = True
 
         # Next step..
@@ -140,13 +145,13 @@ def train(env_params, ac_params, rls_params, path, seed=0, weight_save_interval=
         step += 1
 
         if np.isnan(actions).any():
-            print("NaN encounted in actions at timestep", step, " -- ", actions)
+            # print("NaN encounted in actions at timestep", step, " -- ", actions, "Seed: " + str(seed))
+            success = False
             done = True
 
-    print("Training time: ", time.time()-t_start)
+    # print("Training time: ", time.time()-t_start)
     logger.finalize()
-
-    if not os.path.exists(path) and (save_logs or save_agents):
+    if (save_logs or save_agents) and not os.path.exists(path):
         os.mkdir(path)
 
     if save_logs:
@@ -160,7 +165,7 @@ def train(env_params, ac_params, rls_params, path, seed=0, weight_save_interval=
     sns.set(context='paper')
     if plot_states:
         plot_stats(logger)
-
+    #
     if plot_nn_weights and save_weights:
         plot_neural_network_weights(logger, figsize=(8, 6), agent_name='col', title='Collective')
         plot_neural_network_weights(logger, figsize=(8, 6), agent_name='lon', title='Longitudinal Cyclic')
@@ -168,4 +173,36 @@ def train(env_params, ac_params, rls_params, path, seed=0, weight_save_interval=
     if plot_rls:
         plot_rls_weights(logger)
 
-    return logger
+    score = np.sqrt(-logger.state_history.iloc[5000:6000]['r2'].sum()/1000)
+
+    if return_logs:
+        return logger, score
+    else:
+        if success:
+            return 1, score
+        else:
+            return 0, 0
+
+
+if __name__ == "__main__":
+
+    from params import env_params, ac_params, rls_params, pid_params
+
+    ac_params['lon']['tau_target_critic'] = 1.0
+    ac_params['lon']['nn_stdev_actor'] = 0.1
+    ac_params['lon']['nn_stdev_critic'] = 0.1
+    ac_params['lon']['discount_factor'] = 0.8
+    path = ""
+    training_logs, score = train(env_params=env_params,
+                                 ac_params=ac_params,
+                                 rls_params=rls_params,
+                                 pid_params=pid_params,
+                                 path=path,
+                                 seed=44,
+                                 return_logs=True,
+                                 save_logs=False,
+                                 save_weights=False,
+                                 save_agents=False,
+                                 plot_states=True,
+                                 plot_nn_weights=False,
+                                 plot_rls=False)

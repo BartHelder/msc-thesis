@@ -48,14 +48,11 @@ class CollectivePID6DOF(CollectivePID3DOF):
 
 
 class LatPedPID:
-    def __init__(self, phi_trim, lat_trim, pedal_trim, config_path):
-        with open(config_path, 'r') as f:
-            config = json.load(f)
-            ca = config["agent"]["lateralPID"]
-        self.dt = config["dt"]
-        self.gains = np.array([ca["Ky"], ca["Ky_int"], ca["Ky_dot"],
-                               np.rad2deg(ca["Kphi"]), np.rad2deg(ca["Kphi"]), np.rad2deg(ca["Kp"]),
-                               np.rad2deg(ca["Kpsi"]), np.rad2deg(ca["Kpsi_int"]), np.rad2deg(ca["Kr"])])
+    def __init__(self, phi_trim, lat_trim, pedal_trim, dt, gains_dict):
+        self.dt = dt
+        self.gains = np.array([gains_dict["Ky"], gains_dict["Ky_int"], gains_dict["Ky_dot"],
+                               np.rad2deg(gains_dict["Kphi"]), np.rad2deg(gains_dict["Kphi"]), np.rad2deg(gains_dict["Kp"]),
+                               np.rad2deg(gains_dict["Kpsi"]), np.rad2deg(gains_dict["Kpsi_int"]), np.rad2deg(gains_dict["Kr"])])
         self.phi_trim = phi_trim
         self.lat_trim = lat_trim
         self.pedal_trim = pedal_trim
@@ -86,9 +83,11 @@ class LatPedPID:
         lat = np.clip(self.lat_trim + (Kphi * phi_error + Kphi_int * self.phi_int + Kp * p)/100, 0, 1)
         ped = np.clip(self.pedal_trim + (Kpsi * psi_error + Kpsi_int * self.psi_int + Kr * r)/100, 0, 1)
 
-        self.y_req_int += y_error * self.dt
-        self.phi_int += phi_error * self.dt
-        self.psi_int += psi_error * self.dt
+        if 0.05 < lat < 0.95:
+            self.y_req_int += y_error * self.dt
+            self.phi_int += phi_error * self.dt
+        if 0.05 < ped < 0.95:
+            self.psi_int += psi_error * self.dt
 
         return lat, ped
 

@@ -31,9 +31,9 @@
       "Kphi": 3,
       "Kphi_int": 2.5,
       "Kp": -2,
-      "Kpsi": 5,
+      "Kpsi": 3.3,
       "Kpsi_int": 2.7 ,
-      "Kr": -1.5}
+      "Kr": -1.3}
     },
   "training":
     {"stop_training_time": 120,
