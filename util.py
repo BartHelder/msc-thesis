@@ -93,17 +93,64 @@ class Logger:
             pickle.dump(self, f)
 
 
-def get_ref(obs, t, t_switch, z_ref_start, A):
-    ref = np.nan * np.ones_like(obs)
-    if t < t_switch:
-        ref[11] = 0
-        theta_ref = np.deg2rad(A * (np.sin(2 * np.pi * t / 10)))
-    else:
-        theta_ref = np.deg2rad(-1.5)
-        ref[11] = (z_ref_start - 20 * np.sin(2*np.pi*(t - t_switch) / 10))
-    ref[7] = theta_ref
+# def get_ref(obs, t, t_switch, z_ref_start, A):
+#     ref = np.nan * np.ones_like(obs)
+#     if t < t_switch:
+#         z_ref = 0
+#         theta_ref = np.deg2rad(A/1.72 * (np.sin(2 * np.pi * t / 10) + np.sin(2 * np.pi * t / 20)))
+#     elif t_switch <= t < 120:
+#         theta_ref = np.deg2rad(-1.5)
+#         z_ref = (z_ref_start - 20 * np.sin(2*np.pi*(t - t_switch) / 30))
+#     else:
+#         theta_ref = np.deg2rad(-1 * (30-obs[0]) + -0.05 * int_error_u)
+#     ref[7] = theta_ref
+#     ref[11] = z_ref
+#     return ref
 
-    return ref
+
+class RefGenerator:
+    def __init__(self, T, dt, A, u_ref, t_switch, filter_tau):
+        self.T = T
+        self.dt = dt
+        self.A = A
+        self.z_ref = 0
+        self.u_ref = u_ref
+        self.t_switch = t_switch
+        self.filter = FirstOrderLag(time_constant=filter_tau)
+        self.task = None
+        self.int_error_u = 0
+
+    def get_ref(self, obs, t):
+        ref = np.nan * np.ones_like(obs)
+        if self.task == "train_lon":
+            theta_ref = np.deg2rad(self.A / 1.72 * (np.sin(2 * np.pi * t / self.T) + np.sin(np.pi * t / self.T)))
+            z_ref = 0
+        elif self.task == "train_col":
+            theta_ref = np.deg2rad(3)
+            z_ref = (self.z_ref - 20 * np.sin(2*np.pi*(t - self.t_switch) / 30))
+        elif self.task == "velocity":
+            z_ref = max((t - 120) * -1, -40)
+            u_ref = self.filter(t)
+            u_error = u_ref - obs[0]
+            theta_ref = np.deg2rad(-2 * u_error + -0.05 * self.int_error_u)
+            self.int_error_u += u_error*self.dt
+            ref[0] = u_ref
+        else:
+            return NotImplementedError("Unknown task type")
+        ref[7] = theta_ref
+        ref[11] = z_ref
+
+        return ref
+
+    def set_task(self, task: str, t, obs, velocity_filter_target):
+        self.task = task
+        self.int_error_u = 0
+        self.filter.new_setpoint(t0=t, original=obs[0], setpoint=velocity_filter_target)
+
+
+
+
+
 
 
 def envelope_limits_reached(obs, limit_pitch=89, limit_roll=89):
@@ -125,6 +172,9 @@ class FirstOrderLag:
         self.x0 = None
         self.setpoint = None
         self.tau = time_constant
+
+    def __call__(self, t):
+        return self.get_result(t)
 
     def get_result(self, t):
         return self.x0 + self.setpoint * (1-np.exp((-1 * (t - self.t0) / self.tau)))

@@ -14,11 +14,11 @@ from agents import DHPAgent
 from model import RecursiveLeastSquares
 from heli_models import Helicopter6DOF
 from PID import LatPedPID, CollectivePID6DOF
-from util import Logger, get_ref, envelope_limits_reached, plot_rls_weights, plot_neural_network_weights, plot_stats, FirstOrderLag
+from util import Logger, envelope_limits_reached, plot_rls_weights, plot_neural_network_weights, plot_stats, RefGenerator
 
 
 def train(env_params, ac_params, rls_params, pid_params, results_path, seed=0, weight_save_interval=10, return_logs=True,
-          save_logs=False, save_weights=False,  save_agents=False, load_agents=True, agents_path="", plot_states=True, plot_nn_weights=False, plot_rls=False):
+          save_logs=False, save_weights=False,  save_agents=False, load_agents=False, agents_path="", plot_states=True, plot_nn_weights=False, plot_rls=False):
 
     torch.manual_seed(seed)
     np.random.seed(seed)
@@ -30,7 +30,9 @@ def train(env_params, ac_params, rls_params, pid_params, results_path, seed=0, w
                                         flight_path_angle=env_params['initial_flight_path_angle'],
                                         altitude=env_params['initial_altitude'])
     observation = trim_state.copy()
-    ref = get_ref(observation, env.t, env_params['t_switch'], 0, A=10)
+    ref_generator = RefGenerator(T=10, dt=env_params["dt"], A=10, u_ref=0, t_switch=60, filter_tau=3)
+    ref_generator.set_task(task="train_lon", t=0, obs=observation, velocity_filter_target=0)
+    ref = ref_generator.get_ref(observation, env.t)
 
     # Logging
     logger = Logger(params=ac_params)
@@ -67,7 +69,7 @@ def train(env_params, ac_params, rls_params, pid_params, results_path, seed=0, w
     excitation = np.deg2rad(excitation)
 
     # Flags
-    excitation_phase = False
+    excitation_phase = True
     done = False
     if load_agents:
         update_col = True
@@ -76,32 +78,33 @@ def train(env_params, ac_params, rls_params, pid_params, results_path, seed=0, w
     update_lon = True
     success = True
     rewards = np.zeros(2)
-    int_error_u = 0
     step = 0
-    z_ref_start = 0
-    ref_lagger = FirstOrderLag(time_constant=5)
-    ref_lagger.new_setpoint(t0=0, original=0, setpoint=30)
+
     while not done:
 
         if step == 1000:
             excitation_phase = False
 
-        # if step == env_params['step_switch']:
-        #     z_ref_start = logger.state_history[-1]['z']
-        #     agent_lon.learning_rate_actor *= 0.1
-        #     agent_lon.learning_rate_critic *= 0.1
-        #     update_col = True
+        if step == env_params['step_switch']:
+            #agent_lon.learning_rate_actor *= 0.1
+            #agent_lon.learning_rate_critic *= 0.1
+            update_col = True
+            ref_generator.set_task("train_col", t=env.t, obs=observation, velocity_filter_target=0)
+        elif step == 2*env_params['step_switch']:
+            #agent_col.learning_rate_actor *= 0.1
+            #agent_col.learning_rate_critic *= 0.1
+            ref_generator.set_task("velocity", t=env.t, obs=observation, velocity_filter_target=25)
 
         # Get ref, action, take action
         lateral_cyclic, pedal = LatPedController(observation)
         if step < env_params['step_switch']:
             actions = np.array([ColController(observation),
-                                (trim_actions[1]-0.5) + agent_lon.get_action(observation, ref),
+                                trim_actions[1]-0.5 + agent_lon.get_action(observation, ref),
                                lateral_cyclic,
                                pedal])
         else:
-            actions = np.array([(trim_actions[0]-0.5) + agent_col.get_action(observation, ref),
-                                (trim_actions[1]-0.5) + agent_lon.get_action(observation, ref),
+            actions = np.array([agent_col.get_action(observation, ref),
+                                agent_lon.get_action(observation, ref),
                                 lateral_cyclic,
                                 pedal])
 
@@ -113,22 +116,13 @@ def train(env_params, ac_params, rls_params, pid_params, results_path, seed=0, w
 
         # Take step in the environment
         next_observation, _, done = env.step(actions)
-        # if env.t < 20:
-        #     A = 10
-        # elif 20 <= env.t < 40:
-        #     A = 15
-        # else:
-        #     A = 20
-        # next_ref = get_ref(obs=next_observation, t=env.t, t_switch=env_params['t_switch'], z_ref_start=z_ref_start, A=A)
-
-        next_ref = np.nan * np.ones_like(next_observation)
-        u_ref = ref_lagger.get_result(env.t)
-        u_err = u_ref - next_observation[0]
-        pitch_ref = np.deg2rad(-0.075 * u_err + -0.025 * int_error_u)
-        int_error_u += u_err * env.dt
-        next_ref[0] = u_ref
-        next_ref[7] = pitch_ref
-        next_ref[11] = 5
+        if env.t < 20:
+            ref_generator.A = 10
+        elif 20 <= env.t < 40:
+            ref_generator.A = 20
+        else:
+            ref_generator.A = 20
+        next_ref = ref_generator.get_ref(observation, env.t)
 
         # Update RLS estimator,
         RLS.update(observation, actions[:2], next_observation)
@@ -183,6 +177,7 @@ def train(env_params, ac_params, rls_params, pid_params, results_path, seed=0, w
             os.mkdir(agents_path)
         agent_col.save(path=agents_path+"col.pt")
         agent_lon.save(path=agents_path+"lon.pt")
+        RLS.save(path=agents_path+"rls.pkl")
 
     # if input("Save agent weights? Y/N   ") == ("Y" or "y"):
     #     agent_col.save(path="saved_models/mar/5/col.pt")
@@ -214,22 +209,20 @@ def train(env_params, ac_params, rls_params, pid_params, results_path, seed=0, w
 
 if __name__ == "__main__":
 
-    from params import env_params, ac_params_test, rls_params, pid_params
+    from params import env_params, ac_params_train, rls_params, pid_params
 
-    results_path = "results/mar/5/"
-    agents_path = "saved_models/mar/5/"
-    env_params['step_switch'] = 0
-    env_params['t_switch'] = 0
+    results_path = "results/mar/9/"
+    agents_path = "saved_models/mar/9/"
     training_logs, score = train(env_params=env_params,
-                                 ac_params=ac_params_test,
+                                 ac_params=ac_params_train,
                                  rls_params=rls_params,
                                  pid_params=pid_params,
                                  results_path=results_path,
                                  agents_path=agents_path,
-                                 seed=44,
+                                 seed=71,
                                  return_logs=True,
                                  save_logs=False,
-                                 save_weights=True,
+                                 save_weights=False,
                                  save_agents=False,
                                  plot_states=True,
                                  plot_nn_weights=False,

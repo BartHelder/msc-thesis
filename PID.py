@@ -77,17 +77,16 @@ class LatPedPID:
         y_error = self.y_req - y
         phi_req = self.phi_trim + Ky * y_error + Ky_int * self.y_req_int + Ky_dot * ydot
         psi_req = 0
-        phi_error = phi_req - phi
-        psi_error = psi_req - psi
+        phi_error = (phi_req - phi)
+        psi_error = (psi_req - psi)
 
         lat = np.clip(self.lat_trim + (Kphi * phi_error + Kphi_int * self.phi_int + Kp * p)/100, 0, 1)
         ped = np.clip(self.pedal_trim + (Kpsi * psi_error + Kpsi_int * self.psi_int + Kr * r)/100, 0, 1)
 
-        if 0.05 < lat < 0.95:
+        if 0.01 < lat < 0.99:
             self.y_req_int += y_error * self.dt
             self.phi_int += phi_error * self.dt
-        if 0.05 < ped < 0.95:
-            self.psi_int += psi_error * self.dt
+        #self.psi_int += psi_error * self.dt
 
         return lat, ped
 

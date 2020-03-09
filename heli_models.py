@@ -727,6 +727,12 @@ class Helicopter6DOF:
 
         new_state = old_state + (k1 + 2*k2 + 2*k3 + k4) / 6
 
+        # phi, theta, psi = new_state[6:9]
+        # phi = np.arctan2(np.sin(phi), np.cos(phi))  # Get value clipped between +-180 deg
+        # theta = np.arctan2(np.sin(theta), np.cos(theta))  # Get value clipped between +-180 deg
+        # psi = np.arctan2(np.sin(psi), np.cos(psi))  # Get value clipped between +-180 deg
+        # new_state[6:9] = phi, theta, psi
+
         return new_state
 
     def trim(self, trim_speed, flight_path_angle, altitude):
