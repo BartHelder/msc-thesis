@@ -123,16 +123,17 @@ class RefGenerator:
     def get_ref(self, obs, t):
         ref = np.nan * np.ones_like(obs)
         if self.task == "train_lon":
-            theta_ref = np.deg2rad(self.A / 1.72 * (np.sin(2 * np.pi * t / self.T) + np.sin(np.pi * t / self.T)))
+            theta_ref = np.deg2rad(self.A * (np.sin(2 * np.pi * t / self.T)))
             z_ref = 0
         elif self.task == "train_col":
-            theta_ref = np.deg2rad(3)
-            z_ref = (self.z_ref - 20 * np.sin(2*np.pi*(t - self.t_switch) / 30))
+            theta_ref = np.deg2rad(2.5) if obs[0] > 5 else np.deg2rad(-0.75) * (0 - obs[0])
+
+            z_ref = max((self.z_ref - 1 * (t - self.t_switch)), -25)
         elif self.task == "velocity":
-            z_ref = max((t - 120) * -1, -40)
+            z_ref = self.z_ref + (t - 120) * -1
             u_ref = self.filter(t)
             u_error = u_ref - obs[0]
-            theta_ref = np.deg2rad(-2 * u_error + -0.05 * self.int_error_u)
+            theta_ref = np.deg2rad(-3 * u_error + -0.05 * self.int_error_u)
             self.int_error_u += u_error*self.dt
             ref[0] = u_ref
         else:
@@ -142,10 +143,14 @@ class RefGenerator:
 
         return ref
 
-    def set_task(self, task: str, t, obs, velocity_filter_target):
+    def set_task(self, task: str, t, obs, **kwargs):
         self.task = task
         self.int_error_u = 0
-        self.filter.new_setpoint(t0=t, original=obs[0], setpoint=velocity_filter_target)
+        if task == "train_col":
+            self.z_ref = kwargs['z_start']
+        if task == "velocity":
+            self.z_ref = kwargs['z_start']
+            self.filter.new_setpoint(t0=t, original=obs[0], setpoint=kwargs['velocity_filter_target'])
 
 
 

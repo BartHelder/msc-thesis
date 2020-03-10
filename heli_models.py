@@ -840,20 +840,6 @@ class Helicopter6DOF:
         return 1.225 * (1 - 0.0065 * altitude / 288.15)**(-(9.80665 / (287.05 * -0.0065) + 1))
 
 
-def plot_trim_settings():
-    dt = 0.02
-    env = Helicopter3DOF(dt=dt)
-    env.reset(v_initial=0)
-    sns.set()
-    trim_speeds = np.arange(0, 101, 0.1)
-    trim_settings = list(map(lambda v: np.rad2deg(env._trim(v_trim=v)[0]), trim_speeds))
-    plt.plot(trim_speeds, trim_settings)
-    plt.xlabel('Trim speed [m/s]')
-    plt.ylabel('Control setting [deg]')
-    plt.legend(['collective', 'cyclic'])
-    plt.show()
-
-
 def test_6dof():
     dt = 0.02
     env = Helicopter6DOF(dt=dt)
@@ -899,4 +885,13 @@ def test_6dof():
 
 
 if __name__ == "__main__":
-    test_6dof()
+    dt = 0.01
+    env = Helicopter6DOF(t_max=1, dt=dt)
+    sns.set()
+    trim_speeds = np.arange(0, 40, 0.1)
+    trim_settings = list(map(lambda v: (env.trim(trim_speed=v, flight_path_angle=0, altitude=0)[1]), trim_speeds))
+    plt.plot(trim_speeds, trim_settings)
+    plt.xlabel('Trim speed [m/s]')
+    plt.ylabel('Control setting [-]')
+    plt.legend(['col', 'lon', 'lat', 'ped'])
+    plt.show()

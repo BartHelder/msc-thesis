@@ -30,7 +30,7 @@ def train(env_params, ac_params, rls_params, pid_params, results_path, seed=0, w
                                         flight_path_angle=env_params['initial_flight_path_angle'],
                                         altitude=env_params['initial_altitude'])
     observation = trim_state.copy()
-    ref_generator = RefGenerator(T=10, dt=env_params["dt"], A=10, u_ref=0, t_switch=60, filter_tau=3)
+    ref_generator = RefGenerator(T=10, dt=env_params["dt"], A=10, u_ref=0, t_switch=60, filter_tau=5)
     ref_generator.set_task(task="train_lon", t=0, obs=observation, velocity_filter_target=0)
     ref = ref_generator.get_ref(observation, env.t)
 
@@ -64,17 +64,14 @@ def train(env_params, ac_params, rls_params, pid_params, results_path, seed=0, w
     # Excitation signal for the RLS estimator
     excitation = np.zeros((1000, 4))
     for j in range(400):
-        excitation[j, 1] = -np.sin(2*np.pi * j / 50) * np.exp(-j/100)
-    #     #excitation[j + 400, 1] = np.sin(2 * np.pi * j / 50) * 2
+        excitation[j, 1] = np.sin(2*np.pi * j / 50) * np.exp(-j/100)
+        excitation[j + 400, 0] = np.sin(2*np.pi * j / 50) * np.exp(-j/100)
     excitation = np.deg2rad(excitation)
 
     # Flags
     excitation_phase = True
     done = False
-    if load_agents:
-        update_col = True
-    else:
-        update_col = False
+    update_col = True if load_agents else False
     update_lon = True
     success = True
     rewards = np.zeros(2)
@@ -86,14 +83,17 @@ def train(env_params, ac_params, rls_params, pid_params, results_path, seed=0, w
             excitation_phase = False
 
         if step == env_params['step_switch']:
-            #agent_lon.learning_rate_actor *= 0.1
-            #agent_lon.learning_rate_critic *= 0.1
+            agent_lon.learning_rate_actor *= 0.1
+            agent_lon.learning_rate_critic *= 0.1
             update_col = True
-            ref_generator.set_task("train_col", t=env.t, obs=observation, velocity_filter_target=0)
+            ref_generator.set_task("train_col", t=env.t, obs=observation, z_start=observation[11])
         elif step == 2*env_params['step_switch']:
-            #agent_col.learning_rate_actor *= 0.1
-            #agent_col.learning_rate_critic *= 0.1
-            ref_generator.set_task("velocity", t=env.t, obs=observation, velocity_filter_target=25)
+            agent_lon.learning_rate_actor *= 0.1
+            agent_lon.learning_rate_critic *= 0.1
+            agent_col.learning_rate_actor *= 0.1
+            agent_col.learning_rate_critic *= 0.1
+
+            ref_generator.set_task("velocity", t=env.t, obs=observation, z_start=observation[11], velocity_filter_target=25)
 
         # Get ref, action, take action
         lateral_cyclic, pedal = LatPedController(observation)
@@ -103,8 +103,8 @@ def train(env_params, ac_params, rls_params, pid_params, results_path, seed=0, w
                                lateral_cyclic,
                                pedal])
         else:
-            actions = np.array([agent_col.get_action(observation, ref),
-                                agent_lon.get_action(observation, ref),
+            actions = np.array([trim_actions[0]-0.5 +agent_col.get_action(observation, ref),
+                                trim_actions[1]-0.5 +agent_lon.get_action(observation, ref),
                                 lateral_cyclic,
                                 pedal])
 
@@ -119,7 +119,7 @@ def train(env_params, ac_params, rls_params, pid_params, results_path, seed=0, w
         if env.t < 20:
             ref_generator.A = 10
         elif 20 <= env.t < 40:
-            ref_generator.A = 20
+            ref_generator.A = 15
         else:
             ref_generator.A = 20
         next_ref = ref_generator.get_ref(observation, env.t)
@@ -149,8 +149,8 @@ def train(env_params, ac_params, rls_params, pid_params, results_path, seed=0, w
             logger.log_weights(env.t, agents, RLS)
 
         if envelope_limits_reached(observation)[0]:
-            # print("Save envelope limits reached, stopping simulation. Seed: " + str(seed))
-            # print("Cause of violation: " + envelope_limits_reached(observation)[1])
+            print("Save envelope limits reached, stopping simulation. Seed: " + str(seed))
+            print("Cause of violation: " + envelope_limits_reached(observation)[1])
             success = False
             done = True
 
@@ -160,7 +160,7 @@ def train(env_params, ac_params, rls_params, pid_params, results_path, seed=0, w
         step += 1
 
         if np.isnan(actions).any():
-            # print("NaN encounted in actions at timestep", step, " -- ", actions, "Seed: " + str(seed))
+            print("NaN encounted in actions at timestep", step, " -- ", actions, "Seed: " + str(seed))
             success = False
             done = True
 
@@ -211,19 +211,20 @@ if __name__ == "__main__":
 
     from params import env_params, ac_params_train, rls_params, pid_params
 
-    results_path = "results/mar/9/"
-    agents_path = "saved_models/mar/9/"
+    results_path = "results/mar/10/"
+    agents_path = "saved_models/mar/10/"
     training_logs, score = train(env_params=env_params,
                                  ac_params=ac_params_train,
                                  rls_params=rls_params,
                                  pid_params=pid_params,
                                  results_path=results_path,
                                  agents_path=agents_path,
-                                 seed=71,
+                                 seed=111,
                                  return_logs=True,
                                  save_logs=False,
-                                 save_weights=False,
+                                 save_weights=True,
                                  save_agents=False,
+                                 load_agents=False,
                                  plot_states=True,
                                  plot_nn_weights=False,
-                                 plot_rls=False)
+                                 plot_rls=True)
