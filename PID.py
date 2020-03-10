@@ -86,7 +86,8 @@ class LatPedPID:
         if 0.01 < lat < 0.99:
             self.y_req_int += y_error * self.dt
             self.phi_int += phi_error * self.dt
-        self.psi_int += psi_error * self.dt
+        if 0.01 < ped < 0.99:
+            self.psi_int += psi_error * self.dt
 
         return lat, ped
 

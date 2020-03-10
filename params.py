@@ -68,7 +68,7 @@ pid_params = {"Ky": 0.002,
               "Kp": -2,
               "Kpsi": 3.3,
               "Kpsi_int": 2,
-              "Kr": -1.3,
+              "Kr": -2,
               "Kh": 0.005}
 
 env_params = {'initial_velocity': 15,

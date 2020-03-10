@@ -130,7 +130,7 @@ class RefGenerator:
 
             z_ref = max((self.z_ref - 1 * (t - self.t_switch)), -25)
         elif self.task == "velocity":
-            z_ref = self.z_ref + (t - 120) * -1
+            z_ref = self.z_ref
             u_ref = self.filter(t)
             u_error = u_ref - obs[0]
             theta_ref = np.deg2rad(-3 * u_error + -0.05 * self.int_error_u)
