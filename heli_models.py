@@ -495,7 +495,7 @@ class Helicopter6DOF:
         else:
             raise ValueError("Incorrect input for setting the engine status")
 
-    def calculate_state_derivatives(self, actions, state=None, trimming=True):
+    def calculate_state_derivatives(self, actions, state=None, trimming=False):
 
         #  Controls are fraction of blade angle between lower and upper bounds (e.g. 0 < u < 1)
         coll, long, lat, pedal = np.clip(actions, 0, 1.0)
@@ -754,6 +754,7 @@ class Helicopter6DOF:
             return states, actions
 
         # Initial guesses
+        flight_path_angle = np.deg2rad(flight_path_angle)
         V = trim_speed
         rho = self.calculate_air_density(altitude)  # Density of air                 [kg/m^3]
         D = rho / 2 * V ** 2 * self.F0  # Drag                           [N]

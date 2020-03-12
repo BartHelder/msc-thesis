@@ -83,7 +83,6 @@ class DHPAgent:
         self.learning_rate_critic = learning_rate_critic
         self.gamma = discount_factor
         self.tau_target_critic = tau_target_critic
-
         self.reward_weight = reward_weight
 
     def get_action(self, state, ref):

@@ -122,12 +122,13 @@ class RefGenerator:
 
     def get_ref(self, obs, t):
         ref = np.nan * np.ones_like(obs)
-        if self.task == "train_lon":
+        if self.task == "hover":
+            theta_ref = z_ref = 0
+        elif self.task == "train_lon":
             theta_ref = np.deg2rad(self.A * (np.sin(2 * np.pi * t / self.T)))
             z_ref = 0
         elif self.task == "train_col":
-            theta_ref = np.deg2rad(2.5) if obs[0] > 5 else np.deg2rad(-0.75) * (0 - obs[0])
-
+            theta_ref = np.deg2rad(3) if obs[0] > 1 else np.deg2rad(2.5) * obs[0]
             z_ref = max((self.z_ref - 1 * (t - self.t_switch)), -25)
         elif self.task == "velocity":
             z_ref = self.z_ref
@@ -136,8 +137,23 @@ class RefGenerator:
             theta_ref = np.deg2rad(-3 * u_error + -0.05 * self.int_error_u)
             self.int_error_u += u_error*self.dt
             ref[0] = u_ref
+        elif self.task == "descent":
+            if round(t, 4) == 12.93:
+                self.filter.new_setpoint(t0=t, original=obs[0], setpoint=-obs[0])
+                self.filter.tau = 0.5
+            if round(t, 4) <= 12.92:
+                zdot = 1.93
+                theta_ref = np.deg2rad(2)
+                z_ref = self.z_ref + zdot * (t - self.t_switch)
+            else:
+                zdot = 1
+                u_ref = self.filter(t)
+                u_error = u_ref-obs[0]
+                theta_ref = np.deg2rad(-3 * u_error + -0.05 * self.int_error_u)
+                self.int_error_u += u_error * self.dt
+                z_ref = -5 + zdot * (t - 12.92)
         else:
-            return NotImplementedError("Unknown task type")
+            raise NotImplementedError("Unknown task type")
         ref[7] = theta_ref
         ref[11] = z_ref
 
@@ -148,14 +164,12 @@ class RefGenerator:
         self.int_error_u = 0
         if task == "train_col":
             self.z_ref = kwargs['z_start']
-        if task == "velocity":
+        elif task == "velocity":
             self.z_ref = kwargs['z_start']
             self.filter.new_setpoint(t0=t, original=obs[0], setpoint=kwargs['velocity_filter_target'])
-
-
-
-
-
+        elif task == "descent":
+            self.t_switch = kwargs["t_switch"]
+            self.z_ref = obs[11]
 
 
 def envelope_limits_reached(obs, limit_pitch=89, limit_roll=89):
@@ -188,18 +202,6 @@ class FirstOrderLag:
         self.t0 = t0
         self.x0 = original
         self.setpoint = setpoint
-
-
-def get_ref_2(obs, dt, int_error_u):
-    ref = np.nan * np.ones_like(obs)
-    u_ref = 30
-    u_err = u_ref - obs[2]
-    pitch_ref = np.deg2rad(-1 * u_err + -0.05 * int_error_u)
-    int_error_u += u_err * dt
-    ref[0] = u_ref
-    ref[7] = pitch_ref
-    ref[11] = 0
-    return ref, int_error_u
 
 
 def plot_stats(log, cp=sns.color_palette()):
@@ -255,7 +257,7 @@ def plot_stats(log, cp=sns.color_palette()):
     ax.plot(df['t'], refs[:, 9], ls='--', c=cp[3], label='reference')
     ax.plot(df['t'], refs[:, 10], ls='--', c=cp[3])
     ax.plot(df['t'], refs[:, 11], ls='--', c=cp[3])
-    ax.plot(df['t'], df['x'], c=cp[0], label='x')
+    #ax.plot(df['t'], df['x'], c=cp[0], label='x')
     ax.plot(df['t'], df['y'], c=cp[1], label='y')
     ax.plot(df['t'], df['z'], c=cp[2], label='z')
     plt.ylabel('Position [m]')

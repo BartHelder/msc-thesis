@@ -153,8 +153,18 @@ def plot_stats_3dof(df: pd.DataFrame, pitch_rate=True, results_only=False, color
 
     refs = np.stack(df['reference'])
 
-    fig1 = plt.figure(figsize=(6, 6))
+    def plot_q():
+        ax.plot(df['t'], np.rad2deg(refs[:, 5]), c=cp[3], ls='--')
+        ax.plot(df['t'], df['q'] * 180 / np.pi, c=cp[0])
+        ax.set_xticklabels([])
+        plt.ylabel('q [deg/s]')
+    def plot_theta():
+        ax.plot(df['t'], np.rad2deg(refs[:, 4]), c=cp[3], ls='--')
+        ax.plot(df['t'], df['theta'] * 180 / np.pi, c=cp[0])
+        ax.set_xticklabels([])
+        plt.ylabel('theta [deg]')
 
+    fig1 = plt.figure(figsize=(6, 6))
     ax = fig1.add_subplot(411)
     ax.plot(df['t'], -refs[:, 1], c=cp[3], ls='--', label='reference')
     ax.plot(df['t'], -df['z'], c=cp[0])
@@ -167,15 +177,9 @@ def plot_stats_3dof(df: pd.DataFrame, pitch_rate=True, results_only=False, color
     ax.set_xticklabels([])
     ax = fig1.add_subplot(413)
     if pitch_rate:
-        ax.plot(df['t'], np.rad2deg(refs[:, 5]), c=cp[3], ls='--')
-        ax.plot(df['t'], df['q'] * 180 / np.pi, c=cp[0])
-        ax.set_xticklabels([])
-        plt.ylabel('q [deg/s]')
+        plot_q()
     else:
-        ax.plot(df['t'], np.rad2deg(refs[:, 4]), c=cp[3], ls='--')
-        ax.plot(df['t'], df['theta'] * 180 / np.pi, c=cp[0])
-        ax.set_xticklabels([])
-        plt.ylabel('theta [deg]')
+        plot_theta()
     ax = fig1.add_subplot(414)
     ax.plot(df['t'], df['r2'], c=cp[0])
     plt.ylabel('Reward [-]')
@@ -222,15 +226,9 @@ def plot_stats_3dof(df: pd.DataFrame, pitch_rate=True, results_only=False, color
 
         ax = fig3.add_subplot(515)
         if not pitch_rate:
-            ax.plot(df['t'], np.rad2deg(refs[:, 5]), c=cp[3], ls='--')
-            ax.plot(df['t'], df['q'] * 180 / np.pi, c=cp[0])
-            ax.set_xticklabels([])
-            plt.ylabel('q [deg/s]')
+            plot_q()
         else:
-            ax.plot(df['t'], np.rad2deg(refs[:, 4]), c=cp[3], ls='--')
-            ax.plot(df['t'], df['theta'] * 180 / np.pi, c=cp[0])
-            ax.set_xticklabels([])
-            plt.ylabel('theta [deg]')
+            plot_q()
         plt.xlabel('Time [s]')
 
         plt.show()
