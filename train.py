@@ -125,6 +125,8 @@ def train(mode, env_params, ac_params, rls_params, pid_params, results_path, see
                 ref_generator.set_task(task="descent", t=0, t_switch=0,  obs=observation)
                 ref = ref_generator.get_ref(observation, env.t)
 
+            if step == 1000:
+                env.set_engine_status(n_engines_available=1, transient=True)
             actions = np.array([trim_actions[0] - 0.5 + agent_col.get_action(observation, ref),
                                 trim_actions[1] - 0.5 + agent_lon.get_action(observation, ref),
                                 lateral_cyclic,
@@ -166,11 +168,12 @@ def train(mode, env_params, ac_params, rls_params, pid_params, results_path, see
         else:
             rewards[1] = 0
 
-        logger.log_states(env.t, observation, ref, actions, rewards)
+        logger.log_states(env.t, observation, ref, actions, rewards, env.P_available, env.P_out)
         if save_weights and (step % weight_save_interval == 0 or step < 100):
             logger.log_weights(env.t, agents, RLS)
 
         if envelope_limits_reached(observation)[0]:
+
             print("Save envelope limits reached, stopping simulation. Seed: " + str(seed))
             print("Cause of violation: " + envelope_limits_reached(observation)[1])
             success = False
@@ -211,8 +214,7 @@ def train(mode, env_params, ac_params, rls_params, pid_params, results_path, see
     # Visualization
     sns.set(context='paper')
     if plot_states:
-        plot_stats(logger)
-    #
+        plot_stats(logger, plot_xz=(mode == "test_2"))
 
     if plot_nn_weights and save_weights:
         plot_neural_network_weights(logger, figsize=(8, 6), agent_name='col', title='Collective')
@@ -236,7 +238,7 @@ if __name__ == "__main__":
 
     from params import env_params_train, env_params_test, ac_params_train, ac_params_test, rls_params, pid_params
 
-    results_path = "results/mar/11/" + str(datetime.datetime.now().hour) + str(datetime.datetime.now().minute).zfill(2) + "/"
+    results_path = "results/mar/26/" + str(datetime.datetime.now().hour) + str(datetime.datetime.now().minute).zfill(2) + "/"
     agents_path = "saved_models/mar/11/"
     # training_logs, score = train(mode="train",
     #                              env_params=env_params_train,

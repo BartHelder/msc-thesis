@@ -545,8 +545,7 @@ class Helicopter6DOF:
              + (mu_x**2/6 + 0.2 - mu_x**2*eps*0.25 - 0.25*eps)*self.twist
              - (1/3 - 0.5*eps)*(lambda0_mr-mu_z)
              + mu_x*(1/6 - 0.25*eps)*p/omega)
-        b[1, 0] = (gamma *
-                (mu_x*(2-3*eps)/6*theta_0
+        b[1, 0] = (gamma * (mu_x*(2-3*eps)/6*theta_0
                  + (mu_x**2*(-3*eps**2+6*eps-3) + 16/6*eps - 2)/16*theta_1s
                  + mu_x/4*((1 - 4/3*eps)*self.twist - (eps**2-2*eps+1)*(lambda0_mr-mu_z))
                  + (1-4/3*eps)*p/(8*omega))-2*q/omega) / (den1-den2)
@@ -556,18 +555,13 @@ class Helicopter6DOF:
         # Solving Ax=b for x yields the flapping angles
         a0, a1, b1 = np.linalg.solve(A, b)[:, 0]
         Ct = (self.Cla_mr*self.sigma_mr/8) * \
-             ((2/3 + mu_x**2) * theta_0 * 2
-              + (2 * theta_1s + p / omega) * mu_x
-              + (mu_z - lambda0_mr) * 2
-              + (1 + mu_x**2) * self.twist)  # CHECKED; NO ERRORS WRT MATLAB FILE (numerically equal until last decimal)
+             (2*(2/3 + mu_x**2)*theta_0
+              + (2*theta_1s + p/omega) * mu_x
+              + 2*(mu_z - lambda0_mr)
+              + (1 + mu_x**2)*self.twist)
 
-        Cd = self.delta0 + self.delta2 * Ct**2
+        Cd = self.delta0 + self.delta2*Ct**2
         T_mr = Ct * rho * omega_r**2 * np.pi * self.R_mr**2
-
-        # This appears to be unused?
-        # lambda_d = V * np.sin(alpha_cp - a1) / omega_r + lambda0_mr
-        # Cq = self.sigma_mr * Cd * 0.125 * (1 + 4.7 * mu_x**2) + Ct * lambda_d
-        # Q_mr = Cq * dimless * R_mr
 
         a1t1s = a1 - theta_1s + self.gamma_s
         b1t1c = b1 + theta_1c
@@ -820,7 +814,8 @@ class Helicopter6DOF:
 
                 dfdx[:, i] = (fnew - f) / delta
 
-            inc = -np.linalg.inv(dfdx) @ f[:, None]
+            inc = -np.linalg.pinv(dfdx) @ f[:, None]
+            #inc = np.linalg.lstsq(-dfdx, f[:, None])
             trimvar += inc.ravel()
 
         trim_state, trim_controls = trim_to_state(states, trimvar)
@@ -889,8 +884,8 @@ if __name__ == "__main__":
     dt = 0.01
     env = Helicopter6DOF(t_max=1, dt=dt)
     sns.set()
-    trim_speeds = np.arange(0, 40, 0.1)
-    trim_settings = list(map(lambda v: (env.trim(trim_speed=v, flight_path_angle=0, altitude=0)[1]), trim_speeds))
+    trim_speeds = np.arange(0, 60, 1)
+    trim_settings = list(map(lambda v: (env.trim(trim_speed=v, flight_path_angle=-6, altitude=0)[1]), trim_speeds))
     plt.plot(trim_speeds, trim_settings)
     plt.xlabel('Trim speed [m/s]')
     plt.ylabel('Control setting [-]')

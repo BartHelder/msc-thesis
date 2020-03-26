@@ -25,7 +25,7 @@ class Logger:
         self.training_parameters = params
         self.finalized = False
 
-    def log_states(self, t, observation, ref, actions, rewards):
+    def log_states(self, t, observation, ref, actions, rewards, Pav, Peng):
         self.state_history.append({'t': t,
                                    'u': observation[0],
                                    'v': observation[1],
@@ -39,6 +39,9 @@ class Logger:
                                    'x': observation[9],
                                    'y': observation[10],
                                    'z': observation[11],
+                                   'Pav': Pav,
+                                   'Peng': np.clip(Peng, 0, Pav),
+                                   'omega': observation[-1],
                                    'ref': ref,
                                    'col': actions[0],
                                    'lon': actions[1],
@@ -140,18 +143,19 @@ class RefGenerator:
         elif self.task == "descent":
             if round(t, 4) == 12.93:
                 self.filter.new_setpoint(t0=t, original=obs[0], setpoint=-obs[0])
-                self.filter.tau = 0.5
+                self.filter.tau = 2.5
             if round(t, 4) <= 12.92:
                 zdot = 1.93
-                theta_ref = np.deg2rad(2)
+                theta_ref = np.deg2rad(-0.1)
                 z_ref = self.z_ref + zdot * (t - self.t_switch)
             else:
-                zdot = 1
+                zdot = 0.5
                 u_ref = self.filter(t)
                 u_error = u_ref-obs[0]
-                theta_ref = np.deg2rad(-3 * u_error + -0.05 * self.int_error_u)
+                theta_ref = np.deg2rad(-4 * u_error + 0.1 * self.int_error_u)
                 self.int_error_u += u_error * self.dt
                 z_ref = -5 + zdot * (t - 12.92)
+                ref[0] = u_ref
         else:
             raise NotImplementedError("Unknown task type")
         ref[7] = theta_ref
@@ -204,38 +208,32 @@ class FirstOrderLag:
         self.setpoint = setpoint
 
 
-def plot_stats(log, cp=sns.color_palette()):
+def plot_stats(log, cp=sns.color_palette(), plot_xz=False):
     if log.finalized is False:
         raise ValueError("Logs not yet finalized, so plots cannot be made. Call .finalize() before plotting")
     df = pd.DataFrame(log.state_history)
     refs = np.stack(df['ref'])
 
-    fig1 = plt.figure(figsize=(6, 6))
-    ax = fig1.add_subplot(311)
+    fig1 = plt.figure(figsize=(6, 10))
+    ax = fig1.add_subplot(511)
     ax.plot(df['t'], -refs[:, 11], c=cp[3], ls='--', label='reference')
     ax.plot(df['t'], -df['z'], c=cp[0])
     plt.ylabel('h [m]')
     plt.legend()
     ax.set_xticklabels([])
-    ax = fig1.add_subplot(312)
+    ax = fig1.add_subplot(512)
     ax.plot(df['t'], df['r1'], c=cp[3], ls='--', label='Collective')
     ax.plot(df['t'], df['r2'] * 10 ** 3, c=cp[0], label='Lon Cyclic')
     plt.legend()
     plt.ylabel('Reward [-]')
     ax.set_xticklabels([])
-    ax = fig1.add_subplot(313)
-    # ax.plot(df['t'], refs[:, 4]*180/np.pi, c=cp[3], ls='--', label='reference')
-    # ax.plot(df['t'], df['q']*180/np.pi, c=cp[0])
+    ax = fig1.add_subplot(513)
     ax.plot(df['t'], refs[:, 7] * 180 / np.pi, c=cp[3], ls='--', label='reference')
     ax.plot(df['t'], df['theta'] * 180 / np.pi, c=cp[0], label=r'$\theta$')
     plt.legend()
-    # plt.ylabel('q [deg/s]')
     plt.ylabel('theta [deg]')
-    plt.xlabel('Time [s]')
-    plt.show()
-
-    fig2 = plt.figure(figsize=(6, 6))
-    ax = fig2.add_subplot(211)
+    ax.set_xticklabels([])
+    ax = fig1.add_subplot(514)
     ax.plot(df['t'], df['col'], c=cp[0], label='Collective')
     ax.plot(df['t'], df['lon'], c=cp[1], label='Longitudinal')
     ax.plot(df['t'], df['lat'], c=cp[2], label='Lateral')
@@ -243,7 +241,7 @@ def plot_stats(log, cp=sns.color_palette()):
     plt.ylabel('Control input [-]')
     ax.set_xticklabels([])
     plt.legend()
-    ax = fig2.add_subplot(212)
+    ax = fig1.add_subplot(515)
     ax.plot(df['t'], df['p'] * 180 / np.pi, c=cp[0], label='p')
     ax.plot(df['t'], df['q'] * 180 / np.pi, c=cp[1], label='q')
     ax.plot(df['t'], df['r'] * 180 / np.pi, c=cp[2], label='r')
@@ -252,19 +250,23 @@ def plot_stats(log, cp=sns.color_palette()):
     plt.legend()
     plt.show()
 
-    fig3 = plt.figure(figsize=(6, 10))
-    ax = fig3.add_subplot(311)
-    ax.plot(df['t'], refs[:, 9], ls='--', c=cp[3], label='reference')
-    ax.plot(df['t'], refs[:, 10], ls='--', c=cp[3])
-    ax.plot(df['t'], refs[:, 11], ls='--', c=cp[3])
-    #ax.plot(df['t'], df['x'], c=cp[0], label='x')
-    ax.plot(df['t'], df['y'], c=cp[1], label='y')
-    ax.plot(df['t'], df['z'], c=cp[2], label='z')
-    plt.ylabel('Position [m]')
-    ax.set_xticklabels([])
-    plt.legend()
-
-    ax = fig3.add_subplot(312)
+    fig2 = plt.figure(figsize=(6, 10))
+    ax = fig2.add_subplot(511)
+    if plot_xz:
+        ax.plot(df['x'], -df['z'])
+        plt.ylabel('Height [m]')
+        plt.xlabel('x [m]')
+    else:
+        ax.plot(df['t'], refs[:, 9], ls='--', c=cp[3], label='reference')
+        ax.plot(df['t'], refs[:, 10], ls='--', c=cp[3])
+        ax.plot(df['t'], refs[:, 11], ls='--', c=cp[3])
+        ax.plot(df['t'], df['x'], c=cp[0], label='x')
+        ax.plot(df['t'], df['y'], c=cp[1], label='y')
+        ax.plot(df['t'], df['z'], c=cp[2], label='z')
+        plt.ylabel('Position [m]')
+        ax.set_xticklabels([])
+        plt.legend()
+    ax = fig2.add_subplot(512)
     ax.plot(df['t'], refs[:, 0], ls='--', c=cp[3], label='reference')
     ax.plot(df['t'], refs[:, 1], ls='--', c=cp[3])
     ax.plot(df['t'], refs[:, 2], ls='--', c=cp[3])
@@ -274,8 +276,7 @@ def plot_stats(log, cp=sns.color_palette()):
     plt.ylabel('Body velocities [m/s]')
     ax.set_xticklabels([])
     plt.legend()
-
-    ax = fig3.add_subplot(313)
+    ax = fig2.add_subplot(513)
     ax.plot(df['t'], refs[:, 6] * 180 / np.pi, ls='--', c=cp[3], label='reference')
     ax.plot(df['t'], refs[:, 7] * 180 / np.pi, ls='--', c=cp[3])
     ax.plot(df['t'], refs[:, 8] * 180 / np.pi, ls='--', c=cp[3])
@@ -283,6 +284,19 @@ def plot_stats(log, cp=sns.color_palette()):
     ax.plot(df['t'], df['theta'] * 180 / np.pi, c=cp[1], label=r'$\theta$')
     ax.plot(df['t'], df['psi'] * 180 / np.pi, c=cp[2], label=r'$\psi$')
     plt.ylabel('Body angles [deg]')
+    ax.set_xticklabels([])
+    plt.legend()
+    ax = fig2.add_subplot(514)
+    ax.plot(df['t'], df['Pav'], c=cp[3], ls='--', label='Pav')
+    ax.plot(df['t'], df['Peng'], c=cp[0], label='Preq')
+    plt.ylabel("Power [W]")
+    ax.set_xticklabels([])
+    plt.legend()
+    ax = fig2.add_subplot(515)
+    ax.plot(df['t'], np.ones_like(df['t']) * 102, c=cp[3], ls='--', label='rpm limits')
+    ax.plot(df['t'], np.ones_like(df['t']) * 95, c=cp[3], ls='--')
+    ax.plot(df['t'], df['omega'] / 44.4 * 100, c=cp[0], label='omega')
+    plt.ylabel('Rotor speed [%]')
     plt.xlabel('Time [s]')
     plt.legend()
     plt.show()

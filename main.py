@@ -7,22 +7,13 @@ import torch
 
 from params import env_params, ac_params_train, rls_params, pid_params, path
 
-training_logs,  = train(env_params=env_params,
-                      ac_params=ac_params,
-                      rls_params=rls_params,
-                      pid_params=pid_params,
-                      path=path,
-                      seed=78,
-                      plot_states=True,
-                      save_weights=False,
-                      plot_rls=False)
-
-
 num_seeds = 50
 
+lrs_col = (0.003, 0.01, 0.03, 0.1)
+lrs_lon = (1, 3, 5, 7)
 taus = (0.01, 0.1, 1.0)
-nn_stdevs = (0.1, 0.2, 0.3)
-gammas = (0.7, 0.8, 0.9, 0.95)
+nn_stdevs = (0.01, 0.05, 0.1, 0.2, 0.3)
+gammas = (0.7, 0.8, 0.9, 0.95, 0.99)
 
 def mp_learn(*args):
 
