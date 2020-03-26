@@ -174,8 +174,8 @@ def train(mode, env_params, ac_params, rls_params, pid_params, results_path, see
 
         if envelope_limits_reached(observation)[0]:
 
-            print("Save envelope limits reached, stopping simulation. Seed: " + str(seed))
-            print("Cause of violation: " + envelope_limits_reached(observation)[1])
+            #print("Save envelope limits reached, stopping simulation. Seed: " + str(seed))
+            #print("Cause of violation: " + envelope_limits_reached(observation)[1])
             success = False
             done = True
 
@@ -185,11 +185,11 @@ def train(mode, env_params, ac_params, rls_params, pid_params, results_path, see
         step += 1
 
         if np.isnan(actions).any():
-            print("NaN encounted in actions at timestep", step, " -- ", actions, "Seed: " + str(seed))
+            #print("NaN encounted in actions at timestep", step, " -- ", actions, "Seed: " + str(seed))
             success = False
             done = True
 
-        if done or -observation[11] < 0:
+        if done or step==6001:
             break
 
     # print("Training time: ", time.time()-t_start)
@@ -212,7 +212,7 @@ def train(mode, env_params, ac_params, rls_params, pid_params, results_path, see
     #     agent_lon.save(path="saved_models/mar/5/lon.pt")
 
     # Visualization
-    sns.set(context='paper')
+    #sns.set(context='paper')
     if plot_states:
         plot_stats(logger, plot_xz=(mode == "test_2"))
 
