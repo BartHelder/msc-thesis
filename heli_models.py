@@ -164,7 +164,7 @@ class Helicopter3DOF:
 
         ref = self.get_ref()
 
-        collective, cyclic_pitch = np.clip(actions, np.deg2rad([0, -15]), np.deg2rad([10, 15]))
+        collective, cyclic_pitch = actions # np.clip(actions, np.deg2rad([0, -15]), np.deg2rad([10, 15]))
         x, z, u, w, pitch, q, lambda_i = self.state
         q_diml = q / self.omega  # dimensionless pitch rate
         v_diml = np.sqrt(u**2 + w**2) / self.v_tip  # dimensionless speed
@@ -219,6 +219,7 @@ class Helicopter3DOF:
         # If the pitch angle gets too extreme, end the simulation
         done = False
         if np.abs(np.rad2deg(pitch)) > 90:
+            print("Pitch angle > 90deg")
             done = True
 
         return state, reward, done
@@ -243,7 +244,7 @@ class Helicopter3DOF:
         elif self.task == 'sinusoid':
             qref = np.deg2rad(ref/1.76 * (np.sin(x) + np.sin(2*x)))
             #ref = np.deg2rad(np.sin(2*x) * ref)
-            state_ref = np.array([np.nan, -h_ref, np.nan, np.nan, np.nan, qref, np.nan])
+            state_ref = np.array([np.nan, -h_ref, np.nan, np.nan, qref, np.nan, np.nan])
 
         elif self.task == 'velocity':
             u_err = self.ref - self.state[2]
@@ -273,8 +274,8 @@ class Helicopter3DOF:
         ds_da2 = (self.step(actions=np.array([0.1, 0.1+h]), virtual=True)[0]
                   - self.step(actions=np.array([0.1, 0.1]), virtual=True)[0]) / h
 
-        x1 = np.append(ds_da1, -ds_da1[5])
-        x2 = np.append(ds_da2, -ds_da2[5])
+        x1 = np.append(ds_da1, ds_da1[4])
+        x2 = np.append(ds_da2, ds_da2[4])
 
         return np.array([[x1, x2]]).T
 
@@ -815,7 +816,6 @@ class Helicopter6DOF:
                 dfdx[:, i] = (fnew - f) / delta
 
             inc = -np.linalg.pinv(dfdx) @ f[:, None]
-            #inc = np.linalg.lstsq(-dfdx, f[:, None])
             trimvar += inc.ravel()
 
         trim_state, trim_controls = trim_to_state(states, trimvar)

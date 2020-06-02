@@ -14,12 +14,12 @@ from agents import DHPAgent
 from model import RecursiveLeastSquares
 from heli_models import Helicopter3DOF
 from plotting import plot_stats_3dof
-from PID import CollectivePID
+from PID import CollectivePID3DOF
 
 
 t0 = time.time()
-torch.manual_seed(1)
-np.random.seed(0)
+torch.manual_seed(2)
+np.random.seed(2)
 
 # Some parameters
 agent_parameters = {'col':
@@ -38,25 +38,25 @@ agent_parameters = {'col':
                      'reward_weight': 0.01},
                     'lon':
                     {'control_channel': 'lon',
-                     'discount_factor': 0.95,
-                     'n_hidden_actor': 10,
-                     'nn_stdev_actor': 0.75,
-                     'learning_rate_actor': 0.4,
-                     'action_scaling': 10,
-                     'n_hidden_critic': 10,
-                     'nn_stdev_critic': 0.75,
-                     'learning_rate_critic': 0.4,
-                     'tau_target_critic': 0.01,
-                     'tracked_state': 5,
-                     'ac_states': [4]}}
+                     'discount_factor': 0.99,
+                     'n_hidden_actor': 6,
+                     'nn_stdev_actor': 0.2,
+                     'learning_rate_actor': 0.2,
+                     'action_scaling': 15,
+                     'n_hidden_critic': 6,
+                     'nn_stdev_critic': 0.2,
+                     'learning_rate_critic': 0.2,
+                     'tau_target_critic': 1,
+                     'tracked_state': 4,
+                     'ac_states': [5]}}
 rls_parameters = {'state_size': 7,
                   'action_size': 2,
                   'gamma': 1,
-                  'covariance': 10**8,
+                  'covariance': 10**4,
                   'constant': False}
-V_INITIAL = 0
+V_INITIAL = 10
 dt = 0.01
-t_max = 180
+t_max = 120
 n_steps = int(t_max / dt)
 
 # EnvironmentSt
@@ -70,15 +70,16 @@ ref = env.get_ref()
 RLS = RecursiveLeastSquares(**rls_parameters)
 
 # Agents:
-agent_col = DHPAgent(**agent_parameters['col'])
-agent_lon = DHPAgent(**agent_parameters['lon'])
+collective_pid = CollectivePID3DOF(h_ref = 5, dt=dt)
+agent_col = DHPAgent(**agent_parameters['col'], action_network_final_layer='tanh')
+agent_lon = DHPAgent(**agent_parameters['lon'], action_network_final_layer='tanh')
 agents = [agent_col, agent_lon]
 
 # Excitation signal for the RLS estimator
 excitation = np.zeros((1000, 2))
-# for j in range(400):
-#     #excitation[j, 1] = -np.sin(np.pi * j / 50)
-#     #excitation[j + 400, 1] = np.sin(2 * np.pi * j / 50) * 2
+for j in range(400):
+    excitation[j, 1] = -np.sin(np.pi * j / 50)
+    excitation[j + 400, 0] = np.sin(2 * np.pi * j / 50) * 2
 excitation = np.deg2rad(excitation)
 
 # Bookkeeping
@@ -134,7 +135,7 @@ for step in range(n_steps):
 
     # Get ref, action, take action
     if step < 6000:
-        actions = np.array([np.deg2rad(5),  # + agent_col.get_action(obs, ref),
+        actions = np.array([collective_pid(obs), # + agent_col.get_action(obs, ref),
                            trim_action[1] + agent_lon.get_action(obs, ref)])
     else:
         actions = np.array([trim_action[0] + agent_col.get_action(obs, ref),
@@ -203,5 +204,5 @@ for step in range(n_steps):
 t2 = time.time()
 print("Training time: ", t2 - t_start)
 stats = pd.DataFrame(stats)
-plot_stats_3dof(stats)
+plot_stats_3dof(stats, pitch_rate=False)
 print("Post-processing-time: ", time.time() - t2)

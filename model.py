@@ -1,8 +1,11 @@
 import numpy as np
 import pickle
 
-class RecursiveLeastSquares:
 
+class RecursiveLeastSquares:
+    """
+    Incremental recursive least squares (RLS) estimator. Slightly modified from http://github.com/dave992/msc-thesis
+    """
     def __init__(self, **kwargs):
 
         # Read kwargs

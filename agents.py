@@ -6,7 +6,15 @@ import copy
 
 
 class DHPCritic(nn.Module):
+    """
+    Torch implementation of single-layer ff neural network for DHP critic.
+    """
     def __init__(self, ni, nh=8, std=0.1):
+        """
+        :param ni: number of inputs
+        :param nh: number of hidden neurons
+        :param std: standard deviation of hidden layer initialization
+        """
         super(DHPCritic, self).__init__()
         self.fc1 = nn.Linear(ni, nh, bias=False)
         nn.init.normal_(self.fc1.weight, mean=0, std=std)
@@ -20,7 +28,16 @@ class DHPCritic(nn.Module):
 
 
 class DHPActor(nn.Module):
-    def __init__(self, ni, nh=8, std=0.1, scaling=10):
+
+    def __init__(self, ni, nh=8, std=0.1, scaling=None, action_network_final_layer='tanh'):
+        """
+        :param ni: number of inputs
+        :param nh: number of hidden neurons
+        :param std: standard deviation of hidden layer initialization
+        :param scaling: Scaling of the output neuron
+        :param action_network_final_layer: Final activation function, depends on controlled model / environment
+        """
+
         super(DHPActor, self).__init__()
         self.fc1 = nn.Linear(ni, nh, bias=False)
         nn.init.normal_(self.fc1.weight, mean=0, std=std)
@@ -30,32 +47,43 @@ class DHPActor(nn.Module):
             self.scale = np.deg2rad(scaling)
         else:
             self.scale = 1
+        # The 6dof model takes inputs [0, 1] while the 3dof model takes them in degrees of control deflection.
+        # Therefore, we need to switch the final layer based on the model used:
+        if action_network_final_layer == 'tanh':
+            self.final_activation = torch.tanh
+        elif action_network_final_layer == 'sigmoid':
+            self.final_activation = torch.sigmoid
+        else:
+            raise NotImplementedError(f"Activation function {action_network_final_layer} not supported. ")
 
     def forward(self, x):
         x = torch.tanh(self.fc1(x))
-        x = torch.sigmoid(self.fc2(x))
+        x = self.final_activation(self.fc2(x))
         x = self.scale * x
         return x
 
 
 class DHPAgent:
-
+    """
+    An agent is a container for three neural networks (actor, critic, and target critic) as well as a reward
+    function. Contains an interface for interacting with the environment (get_action) and a RLS model of the
+    environment (get_transition_matrices). The Incremental Dual Heuristic Programming (IDHP) update mechanism
+    is roughly according to Heyer, Kroezen, Van Kampen (2020), except that the target critic estimate is also used in
+    the actor update.
+    """
     def __init__(self, control_channel: str, discount_factor,
-                 n_hidden_actor: int, nn_stdev_actor, learning_rate_actor, action_scaling,
+                 n_hidden_actor: int, nn_stdev_actor, learning_rate_actor, action_scaling, action_network_final_layer,
                  n_hidden_critic: int, nn_stdev_critic, learning_rate_critic, tau_target_critic,
                  tracked_state: int, ac_states: list,
                  reward_weight=1):
         """
-        An agent is a container for three neural networks (actor, critic, and target critic) as well as a reward
-        function. Contains an interface for interacting with the environment (get_action) and a RLS model of the
-        environment (get_transition_matrices). The Incremental Dual Heuristic Programming (IDHP) update mechanism
-        is roughly according to Heyer, Kroezen, Van Kampen (2020)
         :param control_channel: three-letter code of the control channel. Choose from: col, lon, lat, ped
         :param discount_factor
         :param n_hidden_actor: Number of hidden neurons in the actor network
         :param nn_stdev_actor: Standard deviation of the hidden layer initialization of the actor
         :param learning_rate_actor: Learning rate (alpha) of the actor
         :param action_scaling: Scaling of the output of the actor in degrees, should correspond roughly to real actuator limits
+        :param action_network_final_layer: Activation used for final layer of action networks, depends on environment
         :param n_hidden_critic: Number of hidden neurons in the critic network
         :param nn_stdev_critic: Standard deviation of the hidden layer initialization of the critic
         :param learning_rate_critic: Learning rate (alpha) of the critic
@@ -73,7 +101,8 @@ class DHPAgent:
         self.ac_states = ac_states
         self.n_inputs = len(ac_states)+1
 
-        self.actor = DHPActor(ni=self.n_inputs, nh=n_hidden_actor, std=nn_stdev_actor, scaling=action_scaling)
+        self.actor = DHPActor(ni=self.n_inputs, nh=n_hidden_actor, std=nn_stdev_actor, scaling=action_scaling,
+                              action_network_final_layer=action_network_final_layer)
         self.critic = DHPCritic(ni=self.n_inputs, nh=n_hidden_critic, std=nn_stdev_critic)
         self.target_critic = copy.deepcopy(self.critic)
 
@@ -98,16 +127,16 @@ class DHPAgent:
         dr_ds[:, -1] = -2 * tracking_error * self.reward_weight
         return reward, dr_ds
 
-    def get_transition_matrices(self, RLS):
+    def get_transition_matrices(self, rls_estimator):
         """
         Extract the correct submatrices from the incremental RLS system matrices, for use in updating the actor and
         critic.
-        :param RLS: RLS estimator instance
+        :param rls_estimator: RLS estimator instance
         :return: torch tensors F and G, containing only the elements used by the ACD
         """
         state_indices = self.ac_states + [self.tracked_state]
-        F = RLS.gradient_state()[np.ix_(state_indices, state_indices)]
-        G = RLS.gradient_action()[np.ix_(state_indices, [self.control_channel_num])]
+        F = rls_estimator.gradient_state()[np.ix_(state_indices, state_indices)]
+        G = rls_estimator.gradient_action()[np.ix_(state_indices, [self.control_channel_num])]
         return torch.tensor(F, dtype=torch.float), torch.tensor(G, dtype=torch.float)
 
     def augment_state(self, state, reference):
@@ -154,7 +183,7 @@ class DHPAgent:
         # Make sure these calculations don't affect the actual gradients by wrapping them in no_grad()
         with torch.no_grad():
             for wa, wc in zip(self.actor.parameters(), self.critic.parameters()):
-                # .sub_() is in-place substraction - fast en memory-efficient
+                # .sub_() is in-place subtraction (NOT SUBSTITUTION!!!) - fast en memory-efficient
                 wa.data.sub_(wa.grad.data * (-target.mm(G).squeeze(dim=0)) * self.learning_rate_actor)
                 wc.data.sub_(wc.grad.data * self.learning_rate_critic)
         # In PyTorch, gradients accumulate rather than overwrite, so after updating they must be zeroed:
