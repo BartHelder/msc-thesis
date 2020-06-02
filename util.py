@@ -1,8 +1,6 @@
 import numpy as np
 import pandas as pd
 import pickle
-import seaborn as sns
-from matplotlib import pyplot as plt
 
 
 class Logger:

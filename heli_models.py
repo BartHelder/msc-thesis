@@ -1,13 +1,8 @@
-import gym
 import numpy as np
-import itertools
-from collections import defaultdict
 import seaborn as sns
 import matplotlib.pyplot as plt
 import json
-from gym import spaces
 from typing import Union
-from gym.utils import seeding
 from pandas import DataFrame
 from scipy.io import loadmat
 
@@ -42,7 +37,6 @@ class Helicopter1DOF:
             self.q_threshold * 2,
             np.deg2rad(1),
             self.qe_threshold * 2])
-        self.observation_space = spaces.Box(-high, high, dtype=np.float32)
 
         self.stats = {"tau": tau,
                       "k_beta": k_beta}
@@ -97,10 +91,6 @@ class Helicopter1DOF:
         return np.array([-self.th_iy * self.dt,
                          0,
                          -self.th_iy * self.dt])
-
-    def seed(self, seed=None):
-        self.np_random, seed = seeding.np_random(seed)
-        return [seed]
 
     def reset(self):
         """"

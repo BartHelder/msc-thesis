@@ -1,8 +1,7 @@
-from train import train
-import itertools
 import multiprocessing as mp
 import json
 
+from train import train
 from params import env_params_train, env_params_test1, env_params_test2, ac_params_train, ac_params_test, rls_params, pid_params
 
 

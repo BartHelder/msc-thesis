@@ -1,6 +1,5 @@
 # Standard library
 import itertools
-import time
 import datetime
 import os
 import pickle
@@ -8,7 +7,6 @@ import pickle
 # Other
 import torch
 import numpy as np
-import seaborn as sns
 
 # Custom made
 from agents import DHPAgent
